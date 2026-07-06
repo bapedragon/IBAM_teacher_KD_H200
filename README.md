@@ -39,6 +39,7 @@ LG commit/config were not specified in the available experiment context.
 - Best checkpoint criterion: validation Top-1 accuracy
 - Mixed precision: enabled automatically on CUDA
 - Seed: 42 by default
+- Dataset download: verified mirror fallback with the official CIFAR-100 MD5
 
 ## Install
 
@@ -100,7 +101,7 @@ The script prints and flushes the information needed in an Issue/Jenkins
 report:
 
 - Python process start, dependency check/install, and core import completion
-- CIFAR-100 train/test download start and completion
+- CIFAR-100 source attempts, download progress, MD5 verification, and extraction
 - Python, PyTorch, torchvision, and timm versions
 - CUDA availability, GPU count/name/memory, and AMP state
 - batch size, epoch counts, dataset sizes, seed, and output paths
@@ -108,6 +109,12 @@ report:
 - classification and feature losses during student training
 - final Top-1 accuracy and best checkpoint path
 - a `[FATAL]` traceback if execution fails
+
+The downloader first tries a pinned Hugging Face mirror of the original
+`cifar-100-python.tar.gz`, then an institutional SJTU mirror, and finally the
+Toronto source used by torchvision. Every downloaded archive must match the
+official CIFAR-100 MD5 (`eb9058c3a382ffc7106e4002c42a8d85`) before extraction,
+so changing the download host does not change the experiment data.
 
 Each run saves:
 

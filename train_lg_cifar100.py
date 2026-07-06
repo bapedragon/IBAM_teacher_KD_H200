@@ -10,6 +10,7 @@ recipe in particular).
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib
 import importlib.util
 import json
@@ -20,6 +21,7 @@ import subprocess
 import sys
 import time
 import traceback
+import urllib.request
 from contextlib import nullcontext
 from pathlib import Path
 from typing import Any, Dict, Iterable, Tuple
@@ -75,6 +77,7 @@ import torchvision
 from torch.utils.data import DataLoader, Dataset, Subset
 from torchvision import transforms
 from torchvision.datasets import CIFAR100
+from torchvision.datasets.utils import check_integrity, extract_archive
 from torchvision.transforms import InterpolationMode
 
 boot_log("[BOOT] Core imports completed")
@@ -83,6 +86,19 @@ boot_log("[BOOT] Core imports completed")
 CIFAR100_MEAN = (0.5071, 0.4867, 0.4408)
 CIFAR100_STD = (0.2675, 0.2565, 0.2761)
 NUM_CLASSES = 100
+CIFAR100_SOURCES = (
+    (
+        "Hugging Face mirror",
+        "https://huggingface.co/datasets/nakroy/cifar100-python/resolve/"
+        "201a32345d2c6b970e1a36c582930c83e09c96d2/cifar-100-python.tar.gz",
+    ),
+    (
+        "SJTU mirror",
+        "https://scidata.sjtu.edu.cn/records/xk2s3-v1e12/files/"
+        "cifar-100-python.tar.gz?download=1",
+    ),
+    ("Toronto official", CIFAR100.url),
+)
 
 
 def log(message: str = "") -> None:
@@ -311,19 +327,128 @@ def deterministic_subset(dataset: Dataset[Any], size: int, seed: int) -> Dataset
     return Subset(dataset, indices)
 
 
+def cifar100_files_ready(root: Path) -> bool:
+    base = root / CIFAR100.base_folder
+    required_files = list(CIFAR100.train_list) + list(CIFAR100.test_list)
+    required_files.append((CIFAR100.meta["filename"], CIFAR100.meta["md5"]))
+    return all(check_integrity(str(base / filename), md5) for filename, md5 in required_files)
+
+
+def download_cifar100_archive(url: str, destination: Path, source_name: str) -> None:
+    """Download with timeout, progress logs, and official MD5 verification."""
+    partial = destination.with_name(destination.name + ".part")
+    partial.unlink(missing_ok=True)
+    request = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "Mozilla/5.0 (compatible; IBAM-H200-CIFAR100/1.0)",
+            "Accept-Encoding": "identity",
+        },
+    )
+    digest = hashlib.md5()
+    downloaded = 0
+    next_report_percent = 10
+    next_report_bytes = 32 * 1024 * 1024
+
+    log(f"[DATA] Download source={source_name} url={url}")
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response, partial.open("wb") as file:
+            total = int(response.headers.get("Content-Length", "0"))
+            while True:
+                chunk = response.read(1024 * 1024)
+                if not chunk:
+                    break
+                file.write(chunk)
+                digest.update(chunk)
+                downloaded += len(chunk)
+
+                if total > 0:
+                    percent = int(downloaded * 100 / total)
+                    if percent >= next_report_percent:
+                        log(
+                            f"[DATA] Download progress source={source_name} "
+                            f"{min(percent, 100)}% ({downloaded / (1024**2):.1f} MiB)"
+                        )
+                        next_report_percent += 10
+                elif downloaded >= next_report_bytes:
+                    log(
+                        f"[DATA] Download progress source={source_name} "
+                        f"{downloaded / (1024**2):.1f} MiB"
+                    )
+                    next_report_bytes += 32 * 1024 * 1024
+
+        actual_md5 = digest.hexdigest()
+        if actual_md5 != CIFAR100.tgz_md5:
+            raise RuntimeError(
+                f"MD5 mismatch: expected={CIFAR100.tgz_md5} actual={actual_md5}"
+            )
+        partial.replace(destination)
+        log(
+            f"[DATA] Download verified source={source_name} "
+            f"size={downloaded / (1024**2):.1f} MiB md5={actual_md5}"
+        )
+    except Exception:
+        partial.unlink(missing_ok=True)
+        raise
+
+
+def ensure_cifar100_available(root: Path) -> None:
+    """Prepare CIFAR-100 using verified mirrors when the original host is unavailable."""
+    root.mkdir(parents=True, exist_ok=True)
+    if cifar100_files_ready(root):
+        log("[DATA] Existing CIFAR-100 files passed integrity checks")
+        return
+
+    archive = root / CIFAR100.filename
+    if check_integrity(str(archive), CIFAR100.tgz_md5):
+        log(f"[DATA] Found verified archive; extracting {archive}")
+        extract_archive(str(archive), str(root))
+        if cifar100_files_ready(root):
+            log("[DATA] CIFAR-100 extraction and integrity checks completed")
+            return
+    elif archive.exists():
+        log(f"[DATA][WARN] Removing incomplete or invalid archive: {archive}")
+        archive.unlink()
+
+    failures = []
+    for source_name, url in CIFAR100_SOURCES:
+        for attempt in range(1, 3):
+            try:
+                log(f"[DATA] Attempt source={source_name} try={attempt}/2")
+                download_cifar100_archive(url, archive, source_name)
+                log(f"[DATA] Extracting verified archive from {source_name}")
+                extract_archive(str(archive), str(root))
+                if not cifar100_files_ready(root):
+                    raise RuntimeError("extracted CIFAR-100 files failed integrity checks")
+                log(f"[DATA] CIFAR-100 ready from {source_name}")
+                return
+            except Exception as error:
+                message = f"{source_name} try={attempt}: {type(error).__name__}: {error}"
+                failures.append(message)
+                log(f"[DATA][WARN] {message}")
+                archive.unlink(missing_ok=True)
+                if attempt < 2:
+                    time.sleep(3)
+
+    details = " | ".join(failures)
+    raise RuntimeError(f"All CIFAR-100 download sources failed: {details}")
+
+
 def build_loaders(
     args: argparse.Namespace, device: torch.device
 ) -> Tuple[DataLoader[Any], DataLoader[Any]]:
     train_transform, test_transform = make_transforms(args.image_size)
     log(f"[DATA] CIFAR-100 root={args.data_dir.resolve()}")
-    log("[DATA] Preparing train split; download starts now if files are absent")
+    log("[DATA] Preparing CIFAR-100 with verified mirror fallback")
+    ensure_cifar100_available(args.data_dir)
+    log("[DATA] Preparing train split from verified local files")
     train_dataset: Dataset[Any] = CIFAR100(
-        root=args.data_dir, train=True, transform=train_transform, download=True
+        root=args.data_dir, train=True, transform=train_transform, download=False
     )
     log(f"[DATA] Train split ready: samples={len(train_dataset)}")
-    log("[DATA] Preparing test split; download starts now if files are absent")
+    log("[DATA] Preparing test split from verified local files")
     test_dataset: Dataset[Any] = CIFAR100(
-        root=args.data_dir, train=False, transform=test_transform, download=True
+        root=args.data_dir, train=False, transform=test_transform, download=False
     )
     log(f"[DATA] Test split ready: samples={len(test_dataset)}")
 
