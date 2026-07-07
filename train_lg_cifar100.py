@@ -86,6 +86,8 @@ boot_log("[BOOT] Core imports completed")
 CIFAR100_MEAN = (0.5071, 0.4867, 0.4408)
 CIFAR100_STD = (0.2675, 0.2565, 0.2761)
 NUM_CLASSES = 100
+REFERENCE_TEACHER_TOP1 = 70.43
+REFERENCE_LG_TOP1 = 77.38
 CIFAR100_SOURCES = (
     (
         "Hugging Face mirror",
@@ -248,7 +250,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--teacher-epochs", type=int, default=300)
     parser.add_argument("--student-epochs", type=int, default=300)
     parser.add_argument("--batch-size", type=int, default=128)
-    parser.add_argument("--num-workers", type=int, default=4)
+    parser.add_argument(
+        "--num-workers",
+        type=int,
+        default=0,
+        help=(
+            "DataLoader worker count. Default is 0 for the H200 Issue runner "
+            "because small /dev/shm can break multi-worker loading."
+        ),
+    )
     parser.add_argument("--image-size", type=int, default=224)
     parser.add_argument("--seed", type=int, default=42)
 
@@ -790,6 +800,10 @@ def main() -> None:
     log(f"[PATH] data_dir={args.data_dir.resolve()}")
     log(f"[PATH] run_dir={run_dir.resolve()}")
     log(f"[MODE] smoke={args.smoke} teacher_epochs={args.teacher_epochs} student_epochs={args.student_epochs}")
+    log(
+        f"[REFERENCE] paper_teacher_top1={REFERENCE_TEACHER_TOP1:.2f}% "
+        f"paper_lg_top1={REFERENCE_LG_TOP1:.2f}%"
+    )
     log("[NOTE] This is an LG-style scaffold, not an exact official LG reproduction.")
 
     train_loader, test_loader = build_loaders(args, device)
@@ -838,7 +852,10 @@ def main() -> None:
         "student": "DeiT-Ti",
         "teacher_best_top1": teacher_best,
         "student_best_top1": student_best,
-        "reference_lg_top1": 77.38,
+        "reference_teacher_top1": REFERENCE_TEACHER_TOP1,
+        "reference_lg_top1": REFERENCE_LG_TOP1,
+        "teacher_gap_to_reference": teacher_best - REFERENCE_TEACHER_TOP1,
+        "student_gap_to_reference": student_best - REFERENCE_LG_TOP1,
         "smoke": args.smoke,
         "elapsed_seconds": elapsed,
         "teacher_checkpoint": str(teacher_checkpoint_used.resolve()),
@@ -851,7 +868,11 @@ def main() -> None:
     log("=" * 72)
     log(
         f"[FINAL_RESULT] student_best_top1={student_best:.2f}% "
-        f"teacher_best_top1={teacher_best:.2f}% reference_lg_top1=77.38%"
+        f"teacher_best_top1={teacher_best:.2f}% reference_lg_top1={REFERENCE_LG_TOP1:.2f}%"
+    )
+    log(
+        f"[FINAL_RESULT] student_gap_to_reference={student_best - REFERENCE_LG_TOP1:+.2f}pp "
+        f"teacher_gap_to_reference={teacher_best - REFERENCE_TEACHER_TOP1:+.2f}pp"
     )
     log(f"[FINAL_RESULT] elapsed={elapsed / 60.0:.1f}min summary={summary_path.resolve()}")
     log(f"[FINAL_RESULT] best_checkpoint={student_checkpoint.resolve()}")
