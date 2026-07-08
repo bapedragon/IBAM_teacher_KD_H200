@@ -61,16 +61,44 @@ This defaults to:
 - Feature loss weight: 1.0
 - Seed: 42
 
-For the H200 Issue form, the explicit equivalent command is:
+For the H200 Issue form, the explicit full-run command is:
 
 ```bash
-python train_lg_cifar100.py --teacher-epochs 300 --student-epochs 300 --batch-size 128 --num-workers 0
+python train_lg_cifar100.py --teacher-epochs 300 --student-epochs 300 --batch-size 128 --num-workers 4
 ```
 
-`--num-workers 0` is intentional. Earlier H200 smoke runs showed that
-multi-worker DataLoader execution can fail because the container has limited
-shared memory (`/dev/shm`). Using 0 workers is slower on CPU-side loading, but
-it is the safest setting for this runner.
+If the H200 container has enough shared memory, for example `/dev/shm=16GB`,
+`--num-workers 4` is preferred for the full run. If a DataLoader shared-memory
+error appears, retry with `--num-workers 0`.
+
+## Full-dataset timing run
+
+Before another 300+300 epoch run, use this timing command to measure the real
+epoch time on H200:
+
+```bash
+python train_lg_cifar100.py --timing-run --batch-size 128 --num-workers 4
+```
+
+`--timing-run` uses the full CIFAR-100 train/test splits, not the smoke subset.
+When the epoch counts are left at their defaults, it automatically changes the
+run to:
+
+- Teacher epochs: 2
+- Student epochs: 2
+- Batch size: 128
+- DataLoader workers: 4
+
+At the end, check these lines:
+
+```text
+[TIMING] teacher_avg_epoch=...s student_avg_epoch=...s
+[TIMING] estimated_300_teacher_plus_300_student=...
+```
+
+If the estimated time is longer than the H200 job time limit, do not retry the
+full 300+300 run as a single job. Split the workflow into teacher training and
+student training, or reduce validation frequency.
 
 ## Smoke test command
 
@@ -156,9 +184,19 @@ For comparison:
 - **Title:** `[Request]: 박철현 LG CIFAR-100 H200 300-epoch run`
 - **사용자 ID:** `bapedragon`
 - **GitHub 링크:** `https://github.com/bapedragon/IBAM_LG_cifar100_h200.git`
-- **실행 명령어:** `python train_lg_cifar100.py --teacher-epochs 300 --student-epochs 300 --batch-size 128 --num-workers 0`
+- **실행 명령어:** `python train_lg_cifar100.py --teacher-epochs 300 --student-epochs 300 --batch-size 128 --num-workers 4`
 - **사용 이미지:** `pytorch/pytorch:latest`
 - **사용 언어:** `Python`
 - **GPU 할당량:** `7`
 - **추가 필요 모듈:** 없음. `timm==1.0.27`이 없으면 스크립트 시작 시 자동 설치함.
 
+### Timing run issue values
+
+- **Title:** `[Request]: 박철현 LG CIFAR-100 H200 timing run`
+- **사용자 ID:** `bapedragon`
+- **GitHub 링크:** `https://github.com/bapedragon/IBAM_LG_cifar100_h200.git`
+- **실행 명령어:** `python train_lg_cifar100.py --timing-run --batch-size 128 --num-workers 4`
+- **사용 이미지:** `pytorch/pytorch:latest`
+- **사용 언어:** `Python`
+- **GPU 할당량:** `7`
+- **추가 필요 모듈:** 없음. `timm==1.0.27`이 없으면 스크립트 시작 시 자동 설치함.

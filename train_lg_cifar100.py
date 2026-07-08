@@ -17,6 +17,7 @@ import json
 import math
 import os
 import random
+import signal
 import subprocess
 import sys
 import time
@@ -106,6 +107,22 @@ CIFAR100_SOURCES = (
 def log(message: str = "") -> None:
     """Print an H200/Jenkins-friendly, immediately flushed log line."""
     print(message, flush=True)
+
+
+def install_signal_handlers() -> None:
+    """Log graceful external termination signals when the runner allows it."""
+
+    def handle_signal(signum: int, frame: Any) -> None:
+        signal_name = signal.Signals(signum).name
+        log("=" * 72)
+        log(f"[FATAL][SIGNAL] Received {signal_name}; external termination requested.")
+        if frame is not None:
+            traceback.print_stack(frame)
+        log("[FATAL] Training was interrupted before normal completion.")
+        raise SystemExit(128 + signum)
+
+    for signum in (signal.SIGINT, signal.SIGTERM):
+        signal.signal(signum, handle_signal)
 
 
 def seed_everything(seed: int) -> None:
@@ -274,6 +291,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--teacher-warmup-epochs", type=int, default=5)
 
     parser.add_argument("--smoke", action="store_true")
+    parser.add_argument(
+        "--timing-run",
+        action="store_true",
+        help=(
+            "Run the full CIFAR-100 dataset for a short timing test. "
+            "If epoch counts are left at their 300 defaults, this changes them to 2/2 "
+            "and prints an estimated 300+300 epoch runtime."
+        ),
+    )
     parser.add_argument("--smoke-train-samples", type=int, default=1024)
     parser.add_argument("--smoke-test-samples", type=int, default=512)
     parser.add_argument(
@@ -559,6 +585,13 @@ def load_torch_checkpoint(path: Path, device: torch.device) -> Any:
         return torch.load(path, map_location=device)
 
 
+def format_duration(seconds: float) -> str:
+    seconds = max(0, int(round(seconds)))
+    hours, remainder = divmod(seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    return f"{hours:02d}h {minutes:02d}m {seconds:02d}s"
+
+
 def train_teacher(
     model: CIFARResNet56,
     train_loader: DataLoader[Any],
@@ -567,7 +600,7 @@ def train_teacher(
     args: argparse.Namespace,
     checkpoint_path: Path,
     amp: bool,
-) -> float:
+) -> Tuple[float, list[float]]:
     if args.teacher_optimizer == "sgd":
         optimizer: torch.optim.Optimizer = torch.optim.SGD(
             model.parameters(),
@@ -586,6 +619,7 @@ def train_teacher(
     scaler = create_grad_scaler(amp)
     criterion = nn.CrossEntropyLoss(label_smoothing=args.label_smoothing)
     best_accuracy = -1.0
+    epoch_times: list[float] = []
 
     log(
         f"[TEACHER] optimizer={args.teacher_optimizer} lr={args.teacher_lr} "
@@ -625,20 +659,22 @@ def train_teacher(
         else:
             marker = ""
 
+        epoch_time = time.time() - epoch_start
+        epoch_times.append(epoch_time)
         current_lr = optimizer.param_groups[0]["lr"]
         log(
             f"[TEACHER][{epoch:03d}/{args.teacher_epochs:03d}] "
             f"loss={loss_sum / max(1, sample_count):.4f} "
             f"train_acc={100.0 * correct / max(1, sample_count):.2f}% "
             f"val_acc={val_accuracy:.2f}% best={best_accuracy:.2f}% "
-            f"lr={current_lr:.6g} time={time.time() - epoch_start:.1f}s{marker}"
+            f"lr={current_lr:.6g} time={epoch_time:.1f}s{marker}"
         )
         scheduler.step()
 
     best_payload = load_torch_checkpoint(checkpoint_path, device)
     model.load_state_dict(best_payload["model"])
     log(f"[TEACHER] loaded_best checkpoint={checkpoint_path} top1={best_accuracy:.2f}%")
-    return best_accuracy
+    return best_accuracy, epoch_times
 
 
 def load_teacher_checkpoint(
@@ -661,7 +697,7 @@ def train_student(
     args: argparse.Namespace,
     checkpoint_path: Path,
     amp: bool,
-) -> float:
+) -> Tuple[float, list[float]]:
     for parameter in teacher.parameters():
         parameter.requires_grad_(False)
     teacher.eval()
@@ -675,6 +711,7 @@ def train_student(
     scaler = create_grad_scaler(amp)
     classification_criterion = nn.CrossEntropyLoss(label_smoothing=args.label_smoothing)
     best_accuracy = -1.0
+    epoch_times: list[float] = []
 
     log(
         f"[STUDENT] model=deit_tiny_patch16_224 optimizer=adamw "
@@ -740,6 +777,8 @@ def train_student(
         else:
             marker = ""
 
+        epoch_time = time.time() - epoch_start
+        epoch_times.append(epoch_time)
         current_lr = optimizer.param_groups[0]["lr"]
         denominator = max(1, sample_count)
         log(
@@ -749,19 +788,45 @@ def train_student(
             f"feat={feature_loss_sum / denominator:.4f} "
             f"train_acc={100.0 * correct / denominator:.2f}% "
             f"val_acc={val_accuracy:.2f}% best={best_accuracy:.2f}% "
-            f"lr={current_lr:.6g} time={time.time() - epoch_start:.1f}s{marker}"
+            f"lr={current_lr:.6g} time={epoch_time:.1f}s{marker}"
         )
         scheduler.step()
 
     log(f"[STUDENT] best_checkpoint={checkpoint_path} top1={best_accuracy:.2f}%")
-    return best_accuracy
+    return best_accuracy, epoch_times
 
 
 def count_parameters(model: nn.Module) -> int:
     return sum(parameter.numel() for parameter in model.parameters())
 
 
+def summarize_timing(
+    teacher_epoch_times: list[float],
+    student_epoch_times: list[float],
+    target_teacher_epochs: int = 300,
+    target_student_epochs: int = 300,
+) -> Dict[str, Any]:
+    teacher_avg = (
+        sum(teacher_epoch_times) / len(teacher_epoch_times) if teacher_epoch_times else 0.0
+    )
+    student_avg = (
+        sum(student_epoch_times) / len(student_epoch_times) if student_epoch_times else 0.0
+    )
+    estimated_seconds = teacher_avg * target_teacher_epochs + student_avg * target_student_epochs
+    return {
+        "teacher_epoch_times": teacher_epoch_times,
+        "student_epoch_times": student_epoch_times,
+        "teacher_avg_epoch_seconds": teacher_avg,
+        "student_avg_epoch_seconds": student_avg,
+        "target_teacher_epochs": target_teacher_epochs,
+        "target_student_epochs": target_student_epochs,
+        "estimated_full_run_seconds": estimated_seconds,
+        "estimated_full_run_hms": format_duration(estimated_seconds),
+    }
+
+
 def main() -> None:
+    install_signal_handlers()
     args = parse_args()
     validate_args(args)
 
@@ -771,6 +836,13 @@ def main() -> None:
             args.teacher_epochs = 1
         if args.student_epochs == 300:
             args.student_epochs = 1
+    if args.timing_run:
+        if args.smoke:
+            raise ValueError("--timing-run should use the full dataset; do not combine it with --smoke")
+        if args.teacher_epochs == 300:
+            args.teacher_epochs = 2
+        if args.student_epochs == 300:
+            args.student_epochs = 2
 
     seed_everything(args.seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -780,7 +852,12 @@ def main() -> None:
 
     args.data_dir.mkdir(parents=True, exist_ok=True)
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    run_name = "lg_cifar100_deit_tiny_smoke" if args.smoke else "lg_cifar100_deit_tiny_full"
+    if args.smoke:
+        run_name = "lg_cifar100_deit_tiny_smoke"
+    elif args.timing_run:
+        run_name = "lg_cifar100_deit_tiny_timing"
+    else:
+        run_name = "lg_cifar100_deit_tiny_full"
     run_dir = args.output_dir / run_name
     run_dir.mkdir(parents=True, exist_ok=True)
     teacher_checkpoint = run_dir / "teacher_resnet56_best.pt"
@@ -799,7 +876,10 @@ def main() -> None:
     log(f"[ENV] device={device} amp={amp} seed={args.seed}")
     log(f"[PATH] data_dir={args.data_dir.resolve()}")
     log(f"[PATH] run_dir={run_dir.resolve()}")
-    log(f"[MODE] smoke={args.smoke} teacher_epochs={args.teacher_epochs} student_epochs={args.student_epochs}")
+    log(
+        f"[MODE] smoke={args.smoke} timing_run={args.timing_run} "
+        f"teacher_epochs={args.teacher_epochs} student_epochs={args.student_epochs}"
+    )
     log(
         f"[REFERENCE] paper_teacher_top1={REFERENCE_TEACHER_TOP1:.2f}% "
         f"paper_lg_top1={REFERENCE_LG_TOP1:.2f}%"
@@ -816,13 +896,15 @@ def main() -> None:
     )
 
     experiment_start = time.time()
+    teacher_epoch_times: list[float] = []
+    student_epoch_times: list[float] = []
     if args.teacher_checkpoint is not None:
         if not args.teacher_checkpoint.is_file():
             raise FileNotFoundError(f"Teacher checkpoint not found: {args.teacher_checkpoint}")
         teacher_best = load_teacher_checkpoint(teacher, args.teacher_checkpoint, device)
         teacher_checkpoint_used = args.teacher_checkpoint
     else:
-        teacher_best = train_teacher(
+        teacher_best, teacher_epoch_times = train_teacher(
             teacher,
             train_loader,
             test_loader,
@@ -833,7 +915,7 @@ def main() -> None:
         )
         teacher_checkpoint_used = teacher_checkpoint
 
-    student_best = train_student(
+    student_best, student_epoch_times = train_student(
         distiller,
         teacher,
         train_loader,
@@ -844,6 +926,7 @@ def main() -> None:
         amp,
     )
     elapsed = time.time() - experiment_start
+    timing_summary = summarize_timing(teacher_epoch_times, student_epoch_times)
 
     summary = {
         "method": "LG-style",
@@ -857,6 +940,8 @@ def main() -> None:
         "teacher_gap_to_reference": teacher_best - REFERENCE_TEACHER_TOP1,
         "student_gap_to_reference": student_best - REFERENCE_LG_TOP1,
         "smoke": args.smoke,
+        "timing_run": args.timing_run,
+        "timing": timing_summary,
         "elapsed_seconds": elapsed,
         "teacher_checkpoint": str(teacher_checkpoint_used.resolve()),
         "student_checkpoint": str(student_checkpoint.resolve()),
@@ -874,6 +959,16 @@ def main() -> None:
         f"[FINAL_RESULT] student_gap_to_reference={student_best - REFERENCE_LG_TOP1:+.2f}pp "
         f"teacher_gap_to_reference={teacher_best - REFERENCE_TEACHER_TOP1:+.2f}pp"
     )
+    if teacher_epoch_times or student_epoch_times:
+        log(
+            f"[TIMING] teacher_avg_epoch={timing_summary['teacher_avg_epoch_seconds']:.1f}s "
+            f"student_avg_epoch={timing_summary['student_avg_epoch_seconds']:.1f}s"
+        )
+        log(
+            f"[TIMING] estimated_300_teacher_plus_300_student="
+            f"{timing_summary['estimated_full_run_hms']} "
+            f"({timing_summary['estimated_full_run_seconds'] / 3600.0:.2f}h)"
+        )
     log(f"[FINAL_RESULT] elapsed={elapsed / 60.0:.1f}min summary={summary_path.resolve()}")
     log(f"[FINAL_RESULT] best_checkpoint={student_checkpoint.resolve()}")
     log("[DONE] Training completed successfully; resources may be released.")
