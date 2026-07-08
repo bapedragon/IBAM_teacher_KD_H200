@@ -31,6 +31,8 @@ The full run should now be submitted without `--smoke`.
 ## Files
 
 - `train_lg_cifar100.py`: full training script
+- `eval_lg_deit_cifar100.py`: evaluates an already-trained LG/pycls DeiT-Tiny
+  `.pyth` checkpoint on CIFAR-100
 - `requirements.txt`: declared Python dependencies
 - `.gitignore`: excludes local datasets, outputs, caches, and macOS metadata
 
@@ -38,6 +40,45 @@ Runtime-created paths:
 
 - `./data`: CIFAR-100 download/extraction directory
 - `./outputs/lg_cifar100_deit_tiny_full`: checkpoints and `summary.json`
+
+## Evaluate a provided LG DeiT-Tiny checkpoint
+
+If an LG paper/repository checkpoint is already provided, do not train the
+teacher or student again. Evaluation only needs the trained student checkpoint:
+
+```bash
+python eval_lg_deit_cifar100.py --checkpoint ./deit-ti_c100_LG.pyth --batch-size 256 --num-workers 4
+```
+
+If the checkpoint is hosted at a public direct-download URL:
+
+```bash
+python eval_lg_deit_cifar100.py --checkpoint-url "https://..." --batch-size 256 --num-workers 4
+```
+
+Teacher weights are not needed for this evaluation step. The teacher is only
+needed when training a new distilled student.
+
+The evaluator loads LG/pycls-style DeiT-Tiny checkpoint keys such as:
+
+```text
+patch_embed.projection.weight
+layers.0.attn.qkv_transform.weight
+head.weight
+```
+
+and reports:
+
+```text
+[CKPT] recorded_test_err=... recorded_top1=...%
+[FINAL_RESULT] evaluated_top1=... reference_lg_top1=77.38% gap_to_reference=...
+[DONE] Evaluation completed successfully; resources may be released.
+```
+
+Note: the downloaded `deit-ti_c100_LG.pyth` checkpoint inspected locally records
+`test_err=21.85`, i.e. Top-1 `78.15%`, inside the checkpoint metadata. The
+evaluation result should be close to the checkpoint's recorded Top-1 if the
+evaluation transform matches the original code.
 
 ## Full H200 run
 
@@ -200,3 +241,30 @@ For comparison:
 - **사용 언어:** `Python`
 - **GPU 할당량:** `7`
 - **추가 필요 모듈:** 없음. `timm==1.0.27`이 없으면 스크립트 시작 시 자동 설치함.
+
+### Provided LG checkpoint evaluation issue values
+
+Use this when the trained `deit-ti_c100_LG.pyth` checkpoint is already available
+from the repository or from a public direct-download URL.
+
+If the checkpoint is inside the cloned repo:
+
+- **Title:** `[Request]: 박철현 LG DeiT-Tiny CIFAR-100 checkpoint eval`
+- **사용자 ID:** `bapedragon`
+- **GitHub 링크:** `https://github.com/bapedragon/IBAM_LG_cifar100_h200.git`
+- **실행 명령어:** `python eval_lg_deit_cifar100.py --checkpoint ./deit-ti_c100_LG.pyth --batch-size 256 --num-workers 4`
+- **사용 이미지:** `pytorch/pytorch:latest`
+- **사용 언어:** `Python`
+- **GPU 할당량:** `1`
+- **추가 필요 모듈:** 없음
+
+If the checkpoint is hosted at a direct URL:
+
+- **Title:** `[Request]: 박철현 LG DeiT-Tiny CIFAR-100 checkpoint eval`
+- **사용자 ID:** `bapedragon`
+- **GitHub 링크:** `https://github.com/bapedragon/IBAM_LG_cifar100_h200.git`
+- **실행 명령어:** `python eval_lg_deit_cifar100.py --checkpoint-url "https://..." --batch-size 256 --num-workers 4`
+- **사용 이미지:** `pytorch/pytorch:latest`
+- **사용 언어:** `Python`
+- **GPU 할당량:** `1`
+- **추가 필요 모듈:** 없음
