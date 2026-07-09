@@ -220,10 +220,13 @@ def validate_args(args: argparse.Namespace) -> None:
         raise ValueError("--upload-every-n-epochs must be non-negative")
     if args.image_size != 224:
         raise ValueError("This teacher scaffold currently expects --image-size 224")
-    if args.upload_to_github and not get_github_token(args):
-        raise ValueError(
-            "--upload-to-github requires --github-token or GITHUB_TOKEN environment variable"
-        )
+    if args.upload_to_github:
+        token = get_github_token(args)
+        if not token:
+            raise ValueError(
+                "--upload-to-github requires --github-token or GITHUB_TOKEN environment variable"
+            )
+        validate_github_token(token)
 
 
 def make_transforms(image_size: int) -> Tuple[transforms.Compose, transforms.Compose]:
@@ -504,6 +507,35 @@ def count_parameters(model: nn.Module) -> int:
 
 def get_github_token(args: argparse.Namespace) -> str | None:
     return args.github_token or os.environ.get("GITHUB_TOKEN")
+
+
+def validate_github_token(token: str) -> None:
+    """Fail early with a clear message before urllib tries to build headers."""
+    if any(ord(character) > 127 for character in token):
+        raise ValueError(
+            "GitHub token contains non-ASCII characters. Replace the Korean/example "
+            "placeholder with the real token value, for example one starting with "
+            "'github_pat_'."
+        )
+    if any(character.isspace() for character in token):
+        raise ValueError("GitHub token contains whitespace; paste only the raw token value.")
+    placeholder_fragments = (
+        "YOUR_1DAY_GITHUB_TOKEN",
+        "YOUR_GITHUB_TOKEN",
+        "GITHUB_TOKEN",
+        "여기에",
+        "토큰",
+    )
+    if any(fragment in token for fragment in placeholder_fragments):
+        raise ValueError(
+            "GitHub token still looks like a placeholder. Replace it with the real "
+            "short-lived token value."
+        )
+    if not token.startswith(("github_pat_", "ghp_", "gho_", "ghu_", "ghs_", "ghr_")):
+        log(
+            "[SECURITY][WARN] Token does not start with a common GitHub token prefix. "
+            "Continuing, but upload may fail if the value is not a GitHub token."
+        )
 
 
 def github_request(
