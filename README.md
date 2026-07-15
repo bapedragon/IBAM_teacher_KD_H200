@@ -32,8 +32,14 @@ checkpoints/teachers/
   flowers102/teacher_resnet56_flowers_best.pt
   chaoyang/teacher_resnet56_chaoyang_latest.pt
 teacher_checkpoints.py
-train_kd.py
-KD_EXPERIMENT_PLAN.md
+methods/
+  README.md
+  KD/
+    README.md
+    core.py
+    cifar100/{train.py,README.md}
+    flowers102/{train.py,README.md}
+    chaoyang/{train.py,README.md}
 train_teacher_cifar100.py
 train_teacher_flowers.py
 train_teacher_chaoyang.py
@@ -50,10 +56,10 @@ README.md
   and trains the Chaoyang ResNet56 teacher.
 - `teacher_checkpoints.py`: verifies hashes and metadata, strictly loads the
   selected weight, freezes the teacher, and exposes it to KD training code.
-- `train_kd.py`: trains any listed ViT student using standard logit KD with a
-  fixed ResNet56 teacher and the common 300-epoch student protocol.
-- `KD_EXPERIMENT_PLAN.md`: records the fixed student protocol, 21-run matrix,
-  method adaptation requirements, logging, and output conventions.
+- `methods/`: separates KD implementations by method and dataset. Each method
+  has its own protocol README and uses dataset-specific execution wrappers.
+- `methods/KD/core.py`: shared standard-logit-KD training, evaluation, logging,
+  and checkpoint implementation.
 
 Legacy LG student training, LG checkpoint evaluation, the downloaded LG weight,
 and GitHub-token artifact upload experiments have been removed. H200 artifacts
@@ -73,34 +79,23 @@ from teacher_checkpoints import load_teacher
 teacher, checkpoint, teacher_spec = load_teacher("chaoyang", device="cuda")
 ```
 
-## Standard logit KD
+## KD methods
 
-KD uses the same student protocol as LG, ALG, and Ours. The teacher is frozen,
-and only the student is optimized. The method-specific loss is:
+The method and dataset protocols are kept under `methods/`. See
+[methods/KD/README.md](methods/KD/README.md) for standard logit KD and
+[methods/KD/cifar100/README.md](methods/KD/cifar100/README.md) for the first
+experiment.
 
-```text
-loss = (1 - alpha) * CE + alpha * T^2 * KL(student/T, teacher/T)
-```
-
-The initial implementation choices are `temperature=4.0`, `alpha=0.9`, and
-label smoothing `0.1`. They are printed and stored in every run summary because
-the V2 draft does not specify the KD-specific values.
-
-The current `timm==1.0.27` path has been model-creation tested for DeiT-Ti,
-ConViT, PiT, and PVTv2. CvT, T2T-7, and T2T-14 are not exposed by that `timm`
-version and will be connected to their official implementations before their
-KD runs. This does not affect the first DeiT-Ti timing run.
-
-First full-data timing run, without collected `/app/output` artifacts:
+First full-data timing run:
 
 ```bash
-python train_kd.py --dataset cifar100 --student deit_ti --timing-run --batch-size 128 --num-workers 4
+python methods/KD/cifar100/train.py --student deit_ti --timing-run --batch-size 128 --num-workers 4
 ```
 
 First 300-epoch run after timing verification:
 
 ```bash
-python train_kd.py --dataset cifar100 --student deit_ti --student-epochs 300 --batch-size 128 --num-workers 4 --output-dir /app/output
+python methods/KD/cifar100/train.py --student deit_ti --student-epochs 300 --batch-size 128 --num-workers 4 --output-dir /app/output
 ```
 
 ## Environment

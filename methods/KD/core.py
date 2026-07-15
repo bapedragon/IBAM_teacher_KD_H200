@@ -23,6 +23,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+if str(REPOSITORY_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPOSITORY_ROOT))
+
 from teacher_checkpoints import DEFAULT_CHECKPOINT_ROOT, load_teacher
 
 
@@ -592,7 +597,7 @@ def main() -> None:
     log("[DONE] KD training completed successfully; resources may be released.")
 
 
-if __name__ == "__main__":
+def cli_main() -> None:
     try:
         main()
     except Exception as error:
@@ -601,3 +606,7 @@ if __name__ == "__main__":
         traceback.print_exc()
         log("[FATAL] KD training did not complete.")
         raise
+
+
+if __name__ == "__main__":
+    cli_main()

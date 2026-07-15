@@ -1,4 +1,18 @@
-# KD experiment preparation
+# KD method experiment organization
+
+Each comparison method gets its own folder under `methods/`. Every method
+folder contains one shared implementation plus dataset-specific wrappers and
+README files. This keeps method-specific protocols separate without duplicating
+the full training loop three times.
+
+```text
+methods/
+  KD/                  implemented
+  CRD/                 planned
+  ReviewKD/            planned
+  MGD/                 planned
+  OFA/                 planned
+```
 
 ## Fixed inputs
 
@@ -11,11 +25,6 @@ The target matrix contains three datasets and seven ViT students:
 - Datasets: CIFAR-100, Flowers-102, Chaoyang
 - Students: DeiT-Ti, ConViT, CvT, PiT, PVTv2, T2T-7, T2T-14
 - Runs per KD method: `3 datasets x 7 students = 21 runs`
-
-Implementation status: the `timm==1.0.27` path is verified for DeiT-Ti,
-ConViT, PiT, and PVTv2. CvT, T2T-7, and T2T-14 require their official model
-implementations because they are not registered in this `timm` release. The
-first timing run uses DeiT-Ti and is not blocked by this remaining integration.
 
 ## Common student protocol
 
@@ -36,7 +45,7 @@ Seed `42`, exact augmentation, method loss weights, temperatures, feature
 adapters, and best-versus-latest reporting are implementation choices that must
 be recorded explicitly in each run summary.
 
-## Baselines to implement
+## Baselines
 
 1. Logit KD: first implementation target; directly supports CNN teacher to ViT student.
 2. CRD: requires an explicit representation projection rule.
@@ -47,10 +56,10 @@ be recorded explicitly in each run summary.
 Before launching all 21 runs, validate one full-data timing run using
 `CIFAR-100 / ResNet56 -> DeiT-Ti / logit KD`.
 
-Timing command:
+Current timing command:
 
 ```bash
-python train_kd.py --dataset cifar100 --student deit_ti --timing-run --batch-size 128 --num-workers 4
+python methods/KD/cifar100/train.py --student deit_ti --timing-run --batch-size 128 --num-workers 4
 ```
 
 ## Required output contract
