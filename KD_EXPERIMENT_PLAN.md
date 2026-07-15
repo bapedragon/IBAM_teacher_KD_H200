@@ -12,6 +12,11 @@ The target matrix contains three datasets and seven ViT students:
 - Students: DeiT-Ti, ConViT, CvT, PiT, PVTv2, T2T-7, T2T-14
 - Runs per KD method: `3 datasets x 7 students = 21 runs`
 
+Implementation status: the `timm==1.0.27` path is verified for DeiT-Ti,
+ConViT, PiT, and PVTv2. CvT, T2T-7, and T2T-14 require their official model
+implementations because they are not registered in this `timm` release. The
+first timing run uses DeiT-Ti and is not blocked by this remaining integration.
+
 ## Common student protocol
 
 The following settings come from the V2 paper draft and must remain common
@@ -41,6 +46,12 @@ be recorded explicitly in each run summary.
 
 Before launching all 21 runs, validate one full-data timing run using
 `CIFAR-100 / ResNet56 -> DeiT-Ti / logit KD`.
+
+Timing command:
+
+```bash
+python train_kd.py --dataset cifar100 --student deit_ti --timing-run --batch-size 128 --num-workers 4
+```
 
 ## Required output contract
 
