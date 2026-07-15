@@ -1,7 +1,8 @@
-# IBAM teacher training on H200
+# IBAM teacher checkpoints and KD preparation on H200
 
-This repository contains only the reusable ResNet56 teacher-training workflow
-for the IBAM KD experiments on the KAU H200 runner.
+This repository contains the reusable ResNet56 teacher-training workflow, the
+three fixed teacher checkpoints, and the shared preparation files for the IBAM
+KD experiments on the KAU H200 runner.
 
 Repository:
 
@@ -9,20 +10,29 @@ Repository:
 https://github.com/bapedragon/IBAM_teacher_KD_H200.git
 ```
 
-## Current status
+## Fixed teachers for KD
 
-| Dataset | Teacher | Status | Current Top-1 | Paper teacher Top-1 | Gap |
-|---|---|---|---:|---:|---:|
-| CIFAR-100 | ResNet56 | Complete | 68.68% | 70.43% | -1.75pp |
-| Flowers | ResNet56 | Complete | 64.64% | 66.33% | -1.69pp |
-| Chaoyang | ResNet56 | Run complete; artifact verification pending | 83.08% | 77.20% | +5.88pp |
+| Dataset | Selected checkpoint | Epoch | Top-1 | Paper teacher Top-1 | Gap |
+|---|---|---:|---:|---:|---:|
+| CIFAR-100 | Best | 297 | 68.68% | 70.43% | -1.75pp |
+| Flowers-102 | Best | 291 | 64.64% | 66.33% | -1.69pp |
+| Chaoyang | Latest | 300 | 81.53% | 77.20% | +4.33pp |
 
-For downstream KD experiments, use the best checkpoint from each dataset and
-keep that teacher fixed across every compared KD method.
+All three files passed SHA-256 verification, strict `state_dict` loading, and a
+forward-pass check. Chaoyang intentionally uses the epoch-300 `latest`
+checkpoint rather than its 83.08% `best` checkpoint. These selections are now
+fixed and must be reused across every student and every compared KD method.
 
 ## Repository files
 
 ```text
+checkpoints/teachers/
+  manifest.json
+  cifar100/teacher_resnet56_cifar100_best.pt
+  flowers102/teacher_resnet56_flowers_best.pt
+  chaoyang/teacher_resnet56_chaoyang_latest.pt
+teacher_checkpoints.py
+KD_EXPERIMENT_PLAN.md
 train_teacher_cifar100.py
 train_teacher_flowers.py
 train_teacher_chaoyang.py
@@ -37,10 +47,28 @@ README.md
   the Flowers ResNet56 teacher.
 - `train_teacher_chaoyang.py`: validates the mounted official Chaoyang dataset
   and trains the Chaoyang ResNet56 teacher.
+- `teacher_checkpoints.py`: verifies hashes and metadata, strictly loads the
+  selected weight, freezes the teacher, and exposes it to KD training code.
+- `KD_EXPERIMENT_PLAN.md`: records the fixed student protocol, 21-run matrix,
+  method adaptation requirements, logging, and output conventions.
 
 Legacy LG student training, LG checkpoint evaluation, the downloaded LG weight,
 and GitHub-token artifact upload experiments have been removed. H200 artifacts
 are collected only through `/app/output`.
+
+Verify all selected teacher files after cloning:
+
+```bash
+python teacher_checkpoints.py --dataset all
+```
+
+Load one fixed teacher from upcoming KD code:
+
+```python
+from teacher_checkpoints import load_teacher
+
+teacher, checkpoint, teacher_spec = load_teacher("chaoyang", device="cuda")
+```
 
 ## Environment
 
@@ -57,8 +85,8 @@ pip install -r requirements.txt
 ```
 
 `torch` and `torchvision` are already included in the H200 PyTorch image.
-Flowers additionally requires `scipy`; the Flowers script installs it at startup
-when it is missing.
+Flowers additionally requires `scipy`, and the ViT students require
+`timm==1.0.27`.
 
 ## Shared teacher protocol
 
@@ -77,8 +105,8 @@ scaffold choices:
 - Image resolution: `224 x 224`
 - Seed: `42`
 - AMP: enabled on CUDA
-- Checkpoint criterion: highest test Top-1
-- Final artifacts: best checkpoint, latest checkpoint, and `summary.json`
+- Training artifacts: best checkpoint, latest checkpoint, and `summary.json`
+- KD teacher selection: fixed separately in `checkpoints/teachers/manifest.json`
 
 The H200 runner collects only files under `/app/output`. Timing runs intentionally
 omit that path so their temporary checkpoints disappear with the Pod.

@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "model": "CIFAR-style ResNet56",
+  "selection_policy": "The selected checkpoint is fixed before KD and reused for every compared method. CIFAR-100 and Flowers use their best checkpoints. Chaoyang uses the epoch-300 latest checkpoint by project decision because it is closer to the paper teacher reference than the best checkpoint.",
+  "teachers": {
+    "cifar100": {
+      "dataset": "CIFAR-100",
+      "checkpoint": "cifar100/teacher_resnet56_cifar100_best.pt",
+      "training_summary": "cifar100/training_summary.json",
+      "selected_kind": "best",
+      "epoch": 297,
+      "top1": 68.68,
+      "paper_teacher_top1": 70.43,
+      "gap_to_paper_pp": -1.75,
+      "num_classes": 100,
+      "sha256": "13f95dae77b6beda1ab810985b504bc43d4e9b0ec8d54abb3aa018f4c942255a"
+    },
+    "flowers102": {
+      "dataset": "Oxford Flowers 102",
+      "checkpoint": "flowers102/teacher_resnet56_flowers_best.pt",
+      "training_summary": "flowers102/training_summary.json",
+      "selected_kind": "best",
+      "epoch": 291,
+      "top1": 64.64465766791348,
+      "paper_teacher_top1": 66.33,
+      "gap_to_paper_pp": -1.6853423320865204,
+      "num_classes": 102,
+      "sha256": "818e7fba63940533cd7b554c4c23703d082f22d5f4a1e82aa454d7aa2fa30b28"
+    },
+    "chaoyang": {
+      "dataset": "Chaoyang",
+      "checkpoint": "chaoyang/teacher_resnet56_chaoyang_latest.pt",
+      "training_summary": "chaoyang/training_summary.json",
+      "selected_kind": "latest",
+      "epoch": 300,
+      "top1": 81.53342683496962,
+      "paper_teacher_top1": 77.2,
+      "gap_to_paper_pp": 4.333426834969617,
+      "num_classes": 4,
+      "sha256": "29a793665abb89b6b48d3ef5e974314ed9f335c80e78d818e4d94cddad06f76b"
+    }
+  }
+}
