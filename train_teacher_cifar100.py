@@ -1,19 +1,14 @@
 #!/usr/bin/env python3
-"""Train a CIFAR-100 ResNet56 teacher and optionally upload artifacts to GitHub.
+"""Train a CIFAR-100 ResNet56 teacher for downstream KD experiments.
 
-This script is intentionally teacher-only.  It is meant for the H200 workflow
-where a teacher checkpoint must survive after the pod is released.
-
-Security note:
-    If --github-token is used, the token is never printed and is excluded from
-    saved summaries/checkpoints.  Prefer a short-lived fine-grained token scoped
-    only to this repository.
+Artifacts are written under the requested output directory. On the KAU H200
+runner, use ``--output-dir /app/output`` so the runner collects the result after
+the Pod is released.
 """
 
 from __future__ import annotations
 
 import argparse
-import base64
 import hashlib
 import json
 import math
@@ -23,8 +18,6 @@ import signal
 import sys
 import time
 import traceback
-import urllib.error
-import urllib.parse
 import urllib.request
 from contextlib import nullcontext
 from pathlib import Path
@@ -166,7 +159,7 @@ class CIFARResNet56(nn.Module):
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Train/upload CIFAR-100 ResNet56 teacher")
+    parser = argparse.ArgumentParser(description="Train CIFAR-100 ResNet56 teacher")
     parser.add_argument("--data-dir", type=Path, default=Path("./data"))
     parser.add_argument("--output-dir", type=Path, default=Path("./outputs"))
     parser.add_argument("--run-name", type=str, default=None)
@@ -190,17 +183,6 @@ def parse_args() -> argparse.Namespace:
         help="Use CUDA autocast when CUDA is available.",
     )
 
-    parser.add_argument("--upload-to-github", action="store_true")
-    parser.add_argument("--github-token", type=str, default=None)
-    parser.add_argument("--github-repo", type=str, default="bapedragon/IBAM_LG_cifar100_h200")
-    parser.add_argument("--github-branch", type=str, default="main")
-    parser.add_argument("--github-upload-dir", type=str, default="teacher_checkpoints")
-    parser.add_argument(
-        "--upload-every-n-epochs",
-        type=int,
-        default=0,
-        help="If >0, upload current latest/best artifacts every N epochs.",
-    )
     return parser.parse_args()
 
 
@@ -216,17 +198,8 @@ def validate_args(args: argparse.Namespace) -> None:
             raise ValueError(f"--{field.replace('_', '-')} must be positive")
     if args.num_workers < 0:
         raise ValueError("--num-workers must be non-negative")
-    if args.upload_every_n_epochs < 0:
-        raise ValueError("--upload-every-n-epochs must be non-negative")
     if args.image_size != 224:
         raise ValueError("This teacher scaffold currently expects --image-size 224")
-    if args.upload_to_github:
-        token = get_github_token(args)
-        if not token:
-            raise ValueError(
-                "--upload-to-github requires --github-token or GITHUB_TOKEN environment variable"
-            )
-        validate_github_token(token)
 
 
 def make_transforms(image_size: int) -> Tuple[transforms.Compose, transforms.Compose]:
@@ -459,13 +432,10 @@ def evaluate(model: nn.Module, loader: Iterable[Any], device: torch.device, amp:
 
 
 def public_args(args: argparse.Namespace) -> Dict[str, Any]:
-    hidden = {"github_token"}
-    result: Dict[str, Any] = {}
-    for key, value in vars(args).items():
-        if key in hidden:
-            continue
-        result[key] = str(value) if isinstance(value, Path) else value
-    return result
+    return {
+        key: str(value) if isinstance(value, Path) else value
+        for key, value in vars(args).items()
+    }
 
 
 def checkpoint_payload(
@@ -505,110 +475,6 @@ def count_parameters(model: nn.Module) -> int:
     return sum(parameter.numel() for parameter in model.parameters())
 
 
-def get_github_token(args: argparse.Namespace) -> str | None:
-    return args.github_token or os.environ.get("GITHUB_TOKEN")
-
-
-def validate_github_token(token: str) -> None:
-    """Fail early with a clear message before urllib tries to build headers."""
-    if any(ord(character) > 127 for character in token):
-        raise ValueError(
-            "GitHub token contains non-ASCII characters. Replace the Korean/example "
-            "placeholder with the real token value, for example one starting with "
-            "'github_pat_'."
-        )
-    if any(character.isspace() for character in token):
-        raise ValueError("GitHub token contains whitespace; paste only the raw token value.")
-    placeholder_fragments = (
-        "YOUR_1DAY_GITHUB_TOKEN",
-        "YOUR_GITHUB_TOKEN",
-        "GITHUB_TOKEN",
-        "여기에",
-        "토큰",
-    )
-    if any(fragment in token for fragment in placeholder_fragments):
-        raise ValueError(
-            "GitHub token still looks like a placeholder. Replace it with the real "
-            "short-lived token value."
-        )
-    if not token.startswith(("github_pat_", "ghp_", "gho_", "ghu_", "ghs_", "ghr_")):
-        log(
-            "[SECURITY][WARN] Token does not start with a common GitHub token prefix. "
-            "Continuing, but upload may fail if the value is not a GitHub token."
-        )
-
-
-def github_request(
-    method: str,
-    url: str,
-    token: str,
-    payload: Dict[str, Any] | None = None,
-) -> Dict[str, Any] | None:
-    body = None if payload is None else json.dumps(payload).encode("utf-8")
-    request = urllib.request.Request(
-        url,
-        data=body,
-        method=method,
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28",
-            "User-Agent": "IBAM-H200-teacher-upload",
-        },
-    )
-    if body is not None:
-        request.add_header("Content-Type", "application/json")
-    with urllib.request.urlopen(request, timeout=120) as response:
-        data = response.read()
-    if not data:
-        return None
-    return json.loads(data.decode("utf-8"))
-
-
-def github_existing_sha(repo: str, branch: str, remote_path: str, token: str) -> str | None:
-    quoted_path = urllib.parse.quote(remote_path, safe="/")
-    url = f"https://api.github.com/repos/{repo}/contents/{quoted_path}?ref={branch}"
-    try:
-        response = github_request("GET", url, token)
-    except urllib.error.HTTPError as error:
-        if error.code == 404:
-            return None
-        raise
-    if isinstance(response, dict):
-        sha = response.get("sha")
-        return str(sha) if sha else None
-    return None
-
-
-def upload_file_to_github(
-    local_path: Path,
-    repo: str,
-    branch: str,
-    remote_path: str,
-    token: str,
-    message: str,
-) -> None:
-    local_size = local_path.stat().st_size
-    log(
-        f"[UPLOAD] file={local_path} -> github://{repo}/{remote_path} "
-        f"size={local_size / (1024**2):.2f} MiB"
-    )
-    existing_sha = github_existing_sha(repo, branch, remote_path, token)
-    content = base64.b64encode(local_path.read_bytes()).decode("ascii")
-    payload: Dict[str, Any] = {
-        "message": message,
-        "content": content,
-        "branch": branch,
-    }
-    if existing_sha:
-        payload["sha"] = existing_sha
-    quoted_path = urllib.parse.quote(remote_path, safe="/")
-    url = f"https://api.github.com/repos/{repo}/contents/{quoted_path}"
-    github_request("PUT", url, token, payload)
-    action = "updated" if existing_sha else "created"
-    log(f"[UPLOAD] {action} github://{repo}/{remote_path}")
-
-
 def write_summary(
     summary_path: Path,
     args: argparse.Namespace,
@@ -644,53 +510,6 @@ def write_summary(
         "args": public_args(args),
     }
     summary_path.write_text(json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8")
-
-
-def upload_artifacts(
-    args: argparse.Namespace,
-    *,
-    run_name: str,
-    best_checkpoint: Path,
-    latest_checkpoint: Path,
-    summary_path: Path,
-    tag: str,
-) -> None:
-    token = get_github_token(args)
-    if not token:
-        raise RuntimeError("GitHub upload requested but token is missing")
-    if args.github_token:
-        log("[SECURITY][WARN] Token was provided via --github-token. Revoke it after this run.")
-    else:
-        log("[SECURITY] Token was read from GITHUB_TOKEN environment variable.")
-    log("[SECURITY] Token value will not be printed or saved.")
-
-    base_dir = args.github_upload_dir.strip("/")
-    remote_base = f"{base_dir}/{run_name}"
-    message_prefix = f"Upload teacher {run_name} artifacts ({tag})"
-    upload_file_to_github(
-        best_checkpoint,
-        args.github_repo,
-        args.github_branch,
-        f"{remote_base}/teacher_resnet56_best.pt",
-        token,
-        f"{message_prefix}: best checkpoint",
-    )
-    upload_file_to_github(
-        latest_checkpoint,
-        args.github_repo,
-        args.github_branch,
-        f"{remote_base}/teacher_resnet56_latest.pt",
-        token,
-        f"{message_prefix}: latest checkpoint",
-    )
-    upload_file_to_github(
-        summary_path,
-        args.github_repo,
-        args.github_branch,
-        f"{remote_base}/summary.json",
-        token,
-        f"{message_prefix}: summary",
-    )
 
 
 def train_teacher(args: argparse.Namespace) -> None:
@@ -750,13 +569,6 @@ def train_teacher(args: argparse.Namespace) -> None:
         f"weight_decay={args.weight_decay} epochs={args.teacher_epochs} "
         f"effective_warmup={warmup_epochs}"
     )
-    if args.upload_to_github:
-        log(
-            f"[UPLOAD] enabled repo={args.github_repo} branch={args.github_branch} "
-            f"remote_dir={args.github_upload_dir.strip('/')}/{run_name} "
-            f"upload_every_n_epochs={args.upload_every_n_epochs}"
-        )
-
     best_accuracy = 0.0
     latest_accuracy = 0.0
     epoch_times: list[float] = []
@@ -833,21 +645,6 @@ def train_teacher(args: argparse.Namespace) -> None:
             + (" saved_best" if saved_best else "")
         )
 
-        should_periodic_upload = (
-            args.upload_to_github
-            and args.upload_every_n_epochs > 0
-            and epoch % args.upload_every_n_epochs == 0
-        )
-        if should_periodic_upload:
-            upload_artifacts(
-                args,
-                run_name=run_name,
-                best_checkpoint=best_checkpoint,
-                latest_checkpoint=latest_checkpoint,
-                summary_path=summary_path,
-                tag=f"epoch-{epoch}",
-            )
-
     total_elapsed = time.time() - start_time
     average_epoch = sum(epoch_times) / len(epoch_times) if epoch_times else 0.0
     estimated_300_seconds = average_epoch * 300 if average_epoch else 0.0
@@ -864,16 +661,6 @@ def train_teacher(args: argparse.Namespace) -> None:
         latest_checkpoint=latest_checkpoint,
     )
 
-    if args.upload_to_github:
-        upload_artifacts(
-            args,
-            run_name=run_name,
-            best_checkpoint=best_checkpoint,
-            latest_checkpoint=latest_checkpoint,
-            summary_path=summary_path,
-            tag="final",
-        )
-
     log("=" * 72)
     log(
         f"[FINAL_RESULT] teacher_best_top1={best_accuracy:.2f}% "
@@ -888,11 +675,6 @@ def train_teacher(args: argparse.Namespace) -> None:
     log(f"[FINAL_RESULT] best_checkpoint={best_checkpoint.resolve()}")
     log(f"[FINAL_RESULT] latest_checkpoint={latest_checkpoint.resolve()}")
     log(f"[FINAL_RESULT] summary={summary_path.resolve()}")
-    if args.upload_to_github:
-        remote_base = f"{args.github_upload_dir.strip('/')}/{run_name}"
-        log(f"[UPLOAD] remote_best=github://{args.github_repo}/{remote_base}/teacher_resnet56_best.pt")
-        log(f"[UPLOAD] remote_latest=github://{args.github_repo}/{remote_base}/teacher_resnet56_latest.pt")
-        log(f"[UPLOAD] remote_summary=github://{args.github_repo}/{remote_base}/summary.json")
     log("[DONE] Teacher training completed successfully; resources may be released.")
 
 
