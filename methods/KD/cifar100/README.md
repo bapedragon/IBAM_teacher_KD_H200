@@ -27,3 +27,9 @@ Run this only after the timing log is verified:
 ```bash
 python methods/KD/cifar100/train.py --student deit_ti --student-epochs 300 --batch-size 128 --num-workers 4 --output-dir /app/output
 ```
+
+## Completed results
+
+| Student | Best Top-1 | Best epoch | Vanilla | Gain | Result record |
+|---|---:|---:|---:|---:|---|
+| DeiT-Ti | **67.00%** | 191 | 65.08% | +1.92pp | `results/deit_ti/` |

@@ -50,6 +50,13 @@ loss = (1 - alpha) * CE + alpha * T^2 * KL(student/T, teacher/T)
 The V2 draft does not specify these KD-specific values. They are explicit
 implementation choices and are printed and stored in every `summary.json`.
 
+## Hyperparameter policy
+
+No per-method hyperparameter search is used for the current baseline suite.
+The documented method-specific configuration is fixed and reused across
+datasets and students. The paper must describe this as fixed or recommended
+method-specific hyperparameters rather than claiming a hyperparameter search.
+
 ## Student implementation status
 
 The `timm==1.0.27` path is verified for DeiT-Ti, ConViT, PiT, and PVTv2. CvT,
@@ -59,3 +66,11 @@ runs because they are not registered in this `timm` release.
 Start with the full-data CIFAR-100/DeiT-Ti timing run documented in
 `cifar100/README.md`. Do not launch the full 21-run matrix until that log has
 been checked.
+
+## Completed results
+
+| Dataset | Student | Best Top-1 | Vanilla | Gain | Status |
+|---|---|---:|---:|---:|---|
+| CIFAR-100 | DeiT-Ti | **67.00%** | 65.08% | +1.92pp | Complete |
+
+Detailed result: `cifar100/results/deit_ti/README.md`.
