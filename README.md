@@ -94,8 +94,9 @@ teacher, checkpoint, teacher_spec = load_teacher("chaoyang", device="cuda")
 
 The method and dataset protocols are kept under `methods/`. See
 [methods/KD/README.md](methods/KD/README.md) for standard logit KD and
-[methods/KD/cifar100/README.md](methods/KD/cifar100/README.md) for the first
-experiment.
+[methods/CRD/README.md](methods/CRD/README.md) for CRD. The next comparison
+method is documented in
+[methods/ReviewKD/README.md](methods/ReviewKD/README.md).
 
 Current completed results. Table 2 now uses DeiT-Ti only; the other students
 below are retained as exploratory runs.

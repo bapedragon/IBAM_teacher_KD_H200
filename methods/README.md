@@ -8,8 +8,8 @@ the full training loop three times.
 ```text
 methods/
   KD/                  3/3 primary runs executed; artifacts pending review
-  CRD/                 official-code-based implementation ready for timing
-  ReviewKD/            planned
+  CRD/                 3/3 primary runs executed; artifacts pending review
+  ReviewKD/            official-code-based implementation ready for timing
   MGD/                 planned
   OFA/                 planned
 ```
@@ -56,10 +56,10 @@ be recorded explicitly in each run summary.
 
 Before each new method's first full run, validate one full-data timing run.
 
-Current CRD timing command:
+Current ReviewKD timing command:
 
 ```bash
-python methods/CRD/cifar100/train.py --timing-run --num-workers 4
+python methods/ReviewKD/cifar100/train.py --timing-run --num-workers 4
 ```
 
 ## Required output contract
