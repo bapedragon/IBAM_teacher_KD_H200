@@ -18,3 +18,11 @@ Full:
 ```bash
 python methods/MGD/cifar100/train.py --student-epochs 300 --num-workers 4 --run-name mgd_cifar100_deit_ti_300ep --output-dir /app/output
 ```
+
+## Completed result
+
+| Best epoch | Best Top-1 | Latest Top-1 | Vanilla | Gain |
+|---:|---:|---:|---:|---:|
+| 250 | **73.71%** | 73.25% | 65.08% | +8.63pp |
+
+See [results/deit_ti](results/deit_ti/) for the summary, full log, and artifact integrity manifest.

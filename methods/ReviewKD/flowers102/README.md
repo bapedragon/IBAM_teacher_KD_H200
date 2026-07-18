@@ -23,3 +23,11 @@ Full:
 ```bash
 python methods/ReviewKD/flowers102/train.py --num-workers 4 --run-name reviewkd_flowers102_deit_ti_200ep --output-dir /app/output
 ```
+
+## Completed result
+
+| Best epoch | Best Top-1 | Latest Top-1 | Vanilla | Gain |
+|---:|---:|---:|---:|---:|
+| 158 | **50.76%** | 50.46% | 50.06% | +0.70pp |
+
+See [results/deit_ti](results/deit_ti/) for the summary, full log, and artifact integrity manifest.

@@ -18,3 +18,11 @@ Full:
 ```bash
 python methods/MGD/flowers102/train.py --student-epochs 200 --num-workers 4 --run-name mgd_flowers102_deit_ti_200ep --output-dir /app/output
 ```
+
+## Completed result
+
+| Best epoch | Best Top-1 | Latest Top-1 | Vanilla | Gain |
+|---:|---:|---:|---:|---:|
+| 101 | **51.57%** | 50.94% | 50.06% | +1.51pp |
+
+See [results/deit_ti](results/deit_ti/) for the summary, full log, and artifact integrity manifest.

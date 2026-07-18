@@ -132,6 +132,9 @@ The final heterogeneous comparison is documented in
 Current completed results. Table 2 now uses DeiT-Ti only; the other students
 below are retained as exploratory runs.
 
+The consolidated teacher, full-run, timing-run, and progress tables are kept in
+[EXPERIMENT_STATUS.md](EXPERIMENT_STATUS.md).
+
 | Method | Dataset | Student | Best Top-1 | Vanilla | Gain |
 |---|---|---|---:|---:|---:|
 | KD | CIFAR-100 | DeiT-Ti | **67.00%** | 65.08% | +1.92pp |
@@ -146,6 +149,7 @@ below are retained as exploratory runs.
 | MGD | CIFAR-100 | DeiT-Ti | **73.71%** | 65.08% | +8.63pp |
 | MGD | Flowers-102 | DeiT-Ti | **51.57%** | 50.06% | +1.51pp |
 | MGD | Chaoyang | DeiT-Ti | **81.81%** | 82.00% | -0.19pp |
+| OFA | CIFAR-100 | DeiT-Ti | **66.18%** | 65.08% | +1.10pp |
 | KD | CIFAR-100 | ConViT-Tiny | **73.59%** | 74.87% | -1.28pp |
 | KD | CIFAR-100 | PiT-Tiny | **72.22%** | 73.16% | -0.94pp |
 

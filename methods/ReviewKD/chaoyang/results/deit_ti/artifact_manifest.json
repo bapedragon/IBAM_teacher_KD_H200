@@ -1,0 +1,24 @@
+{
+  "source_job": "bapedragon_417",
+  "archive": {
+    "filename": "ReviewKD_Chaoyang_DeiT-Ti_100ep_seed42_Top1-81.53.zip",
+    "sha256": "3e2bbab8bbd47f36aa1e57a2d8b6ca902da987b88fce64b5fa018872f6370605",
+    "tracked_in_git": false
+  },
+  "selected_checkpoint": {
+    "filename_in_archive": "bapedragon_417/reviewkd_chaoyang_deit_ti_100ep/student_best.pt",
+    "epoch": 78,
+    "top1": 81.53342683496962,
+    "sha256": "0fcc283546fc656b7f30b905cf0f1df597d20df1dd26802e02de037b6583c142",
+    "torch_load_verified": true,
+    "finite_tensor_check": true
+  },
+  "latest_checkpoint": {
+    "filename_in_archive": "bapedragon_417/reviewkd_chaoyang_deit_ti_100ep/student_latest.pt",
+    "epoch": 100,
+    "top1": 80.27115474520804,
+    "sha256": "94542f11cec728c7812f806f698dfcbf94f29498088e451bf06c1b72a2b7f741",
+    "torch_load_verified": true,
+    "finite_tensor_check": true
+  }
+}

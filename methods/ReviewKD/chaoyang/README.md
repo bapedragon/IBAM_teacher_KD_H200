@@ -23,3 +23,11 @@ Full:
 ```bash
 python methods/ReviewKD/chaoyang/train.py --num-workers 4 --run-name reviewkd_chaoyang_deit_ti_100ep --output-dir /app/output
 ```
+
+## Completed result
+
+| Best epoch | Best Top-1 | Latest Top-1 | Vanilla | Gain |
+|---:|---:|---:|---:|---:|
+| 78 | **81.53%** | 80.27% | 82.00% | -0.47pp |
+
+See [results/deit_ti](results/deit_ti/) for the summary, full log, and artifact integrity manifest.

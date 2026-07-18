@@ -1,0 +1,24 @@
+{
+  "source_job": "bapedragon_423",
+  "archive": {
+    "filename": "MGD_Chaoyang_DeiT-Ti_100ep_seed42_Top1-81.81.zip",
+    "sha256": "50ab3e62ff8434bff8c5865587e853d18c4cfbd4bd494aa14b0f3dbc77e9368f",
+    "tracked_in_git": false
+  },
+  "selected_checkpoint": {
+    "filename_in_archive": "bapedragon_423/mgd_chaoyang_deit_ti_100ep/student_best.pt",
+    "epoch": 61,
+    "top1": 81.81393174380551,
+    "sha256": "b4261114ff18a35a0f023f2ba102c97ce34c885ed2456ad6bbfff569462ab8d0",
+    "torch_load_verified": true,
+    "finite_tensor_check": true
+  },
+  "latest_checkpoint": {
+    "filename_in_archive": "bapedragon_423/mgd_chaoyang_deit_ti_100ep/student_latest.pt",
+    "epoch": 100,
+    "top1": 80.03740065451146,
+    "sha256": "0a8d372df2a692cd009e58ed428ee0012e783ce5c6059e563b8864457a207643",
+    "torch_load_verified": true,
+    "finite_tensor_check": true
+  }
+}

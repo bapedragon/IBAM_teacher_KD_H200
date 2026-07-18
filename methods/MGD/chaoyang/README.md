@@ -22,3 +22,11 @@ python methods/MGD/chaoyang/train.py --student-epochs 100 --num-workers 4 --run-
 
 Any teacher-gap adjustment is reporting-only and is not applied to training or
 checkpoint selection.
+
+## Completed result
+
+| Best epoch | Best Top-1 | Latest Top-1 | Vanilla | Gain |
+|---:|---:|---:|---:|---:|
+| 61 | **81.81%** | 80.04% | 82.00% | -0.19pp |
+
+See [results/deit_ti](results/deit_ti/) for the summary, full log, and artifact integrity manifest.
