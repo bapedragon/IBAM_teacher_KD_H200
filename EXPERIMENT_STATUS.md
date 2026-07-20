@@ -1,6 +1,6 @@
 # Experiment status
 
-Last updated: 2026-07-18
+Last updated: 2026-07-20
 
 This document summarizes the completed H200 teacher and DeiT-Ti knowledge-distillation runs. Student scores use the best checkpoint Top-1 accuracy. A timing run is a two-epoch execution check and is not treated as a final result.
 
@@ -25,7 +25,7 @@ Values in parentheses are gains over the corresponding Vanilla DeiT-Ti result.
 | CRD | 67.40% (+2.32pp) | 46.63% (-3.43pp) | 76.48% (-5.52pp) |
 | ReviewKD | 72.84% (+7.76pp) | 50.76% (+0.70pp) | 81.53% (-0.47pp) |
 | **MGD** | **73.71% (+8.63pp)** | **51.57% (+1.51pp)** | **81.81% (-0.19pp)** |
-| OFA | 66.18% (+1.10pp) | Not started | Not started |
+| OFA | 66.18% (+1.10pp) | 44.07% (-5.99pp) | 80.04% (-1.96pp) |
 
 ## 3. Completed full-run details
 
@@ -44,6 +44,8 @@ Values in parentheses are gains over the corresponding Vanilla DeiT-Ti result.
 | MGD | Flowers-102 | 200 | 101 | **51.57%** | 50.94% | Complete |
 | MGD | Chaoyang | 100 | 61 | **81.81%** | 80.04% | Complete |
 | OFA | CIFAR-100 | 300 | 227 | **66.18%** | 65.92% | Complete |
+| OFA | Flowers-102 | 200 | 190 | **44.07%** | 43.96% | Complete |
+| OFA | Chaoyang | 100 | 74 | **80.04%** | 79.43% | Complete |
 
 ## 4. Current progress
 
@@ -53,9 +55,9 @@ Values in parentheses are gains over the corresponding Vanilla DeiT-Ti result.
 | CRD | Full run complete | Full run complete | Full run complete |
 | ReviewKD | Full run complete | Full run complete | Full run complete |
 | MGD | Full run complete | Full run complete | Full run complete |
-| OFA | Full run complete | Not started | Not started |
+| OFA | Full run complete | Full run complete | Full run complete |
 
-The CIFAR-100 OFA full run completed in 4 h 00 min 32 s. Its best checkpoint reached 66.18% at epoch 227; the epoch-300 latest checkpoint reached 65.92%.
+The OFA matrix is complete. CIFAR-100 reached 66.18%, Flowers-102 reached 44.07%, and Chaoyang reached 80.04% at their selected best checkpoints.
 
 ## 5. Exploratory runs outside Table 2
 
@@ -81,5 +83,7 @@ The CIFAR-100 OFA full run completed in 4 h 00 min 32 s. Its best checkpoint rea
 | MGD | Flowers-102 | `bapedragon_421` | `MGD_Flowers102_DeiT-Ti_200ep_seed42_Top1-51.57.zip` | Best/latest load and finite-tensor checks passed |
 | MGD | Chaoyang | `bapedragon_423` | `MGD_Chaoyang_DeiT-Ti_100ep_seed42_Top1-81.81.zip` | Best/latest load and finite-tensor checks passed |
 | OFA | CIFAR-100 | `bapedragon_425` | `OFA_CIFAR100_DeiT-Ti_300ep_seed42_Top1-66.18.zip` | Best/latest load and finite-tensor checks passed |
+| OFA | Flowers-102 | `bapedragon_427` | `OFA_Flowers102_DeiT-Ti_200ep_seed42_Top1-44.07.zip` | Student/projector strict load and finite-tensor checks passed |
+| OFA | Chaoyang | `bapedragon_429` | `OFA_Chaoyang_DeiT-Ti_100ep_seed42_Top1-80.04.zip` | Student/projector strict load and finite-tensor checks passed |
 
 The large ZIP and checkpoint files are stored outside Git. Each result folder tracks the summary, complete training log, and SHA-256 integrity manifest.

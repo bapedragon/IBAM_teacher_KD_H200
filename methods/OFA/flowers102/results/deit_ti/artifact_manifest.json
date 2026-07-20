@@ -1,0 +1,28 @@
+{
+  "source_job": "bapedragon_427",
+  "archive": {
+    "filename": "OFA_Flowers102_DeiT-Ti_200ep_seed42_Top1-44.07.zip",
+    "sha256": "851880c752d196093e134bb270034d02d15184a16c66445da153e3b31585a053",
+    "tracked_in_git": false
+  },
+  "selected_checkpoint": {
+    "filename_in_archive": "bapedragon_427/ofa_flowers102_deit_ti_200ep/student_best.pt",
+    "epoch": 190,
+    "top1": 44.07220686290454,
+    "sha256": "91e26032a5b97b0501df0ac0133e26c69e4caab84bc35d09ada5e2175989cc25",
+    "torch_load_verified": true,
+    "student_strict_load_verified": true,
+    "projector_strict_load_verified": true,
+    "finite_tensor_check": true
+  },
+  "latest_checkpoint": {
+    "filename_in_archive": "bapedragon_427/ofa_flowers102_deit_ti_200ep/student_latest.pt",
+    "epoch": 200,
+    "top1": 43.958367214181166,
+    "sha256": "dc01609b1d31b489b19922f5a06f99045a7d5e046fdbce5f97249eab1a5116b2",
+    "torch_load_verified": true,
+    "student_strict_load_verified": true,
+    "projector_strict_load_verified": true,
+    "finite_tensor_check": true
+  }
+}

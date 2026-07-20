@@ -150,6 +150,8 @@ The consolidated teacher, full-run, timing-run, and progress tables are kept in
 | MGD | Flowers-102 | DeiT-Ti | **51.57%** | 50.06% | +1.51pp |
 | MGD | Chaoyang | DeiT-Ti | **81.81%** | 82.00% | -0.19pp |
 | OFA | CIFAR-100 | DeiT-Ti | **66.18%** | 65.08% | +1.10pp |
+| OFA | Flowers-102 | DeiT-Ti | **44.07%** | 50.06% | -5.99pp |
+| OFA | Chaoyang | DeiT-Ti | **80.04%** | 82.00% | -1.96pp |
 | KD | CIFAR-100 | ConViT-Tiny | **73.59%** | 74.87% | -1.28pp |
 | KD | CIFAR-100 | PiT-Tiny | **72.22%** | 73.16% | -0.94pp |
 

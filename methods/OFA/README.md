@@ -57,6 +57,18 @@ KD, CRD, ReviewKD, and MGD. These shared settings are intentionally held fixed
 for fair per-dataset comparison; OFA-specific loss and projector settings come
 from the official implementation.
 
+## Completed results
+
+| Dataset | Epochs | Best epoch | Best Top-1 | Vanilla | Gain | Latest Top-1 |
+|---|---:|---:|---:|---:|---:|---:|
+| CIFAR-100 | 300 | 227 | **66.18%** | 65.08% | +1.10pp | 65.92% |
+| Flowers-102 | 200 | 190 | **44.07%** | 50.06% | -5.99pp | 43.96% |
+| Chaoyang | 100 | 74 | **80.04%** | 82.00% | -1.96pp | 79.43% |
+
+All three result archives passed strict student/projector state loading and
+finite-tensor checks. Large checkpoint archives are kept outside Git; each
+dataset result folder contains the complete log, summary, and integrity hashes.
+
 ## First timing run
 
 ```bash

@@ -7,11 +7,11 @@ the full training loop three times.
 
 ```text
 methods/
-  KD/                  3/3 primary runs executed; artifacts pending review
-  CRD/                 3/3 primary runs executed; artifacts pending review
-  ReviewKD/            3/3 primary runs executed; artifacts pending review
-  MGD/                 3/3 primary runs executed; artifacts pending review
-  OFA/                 official-behavior-based implementation ready for timing
+  KD/                  3/3 primary runs complete
+  CRD/                 3/3 primary runs complete
+  ReviewKD/            3/3 primary runs complete
+  MGD/                 3/3 primary runs complete
+  OFA/                 3/3 primary runs complete
 ```
 
 ## Fixed inputs
@@ -56,7 +56,7 @@ be recorded explicitly in each run summary.
 
 Before each new method's first full run, validate one full-data timing run.
 
-Current OFA timing command:
+OFA timing command example:
 
 ```bash
 python methods/OFA/cifar100/train.py --timing-run --num-workers 4

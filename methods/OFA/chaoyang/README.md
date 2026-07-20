@@ -22,3 +22,11 @@ python methods/OFA/chaoyang/train.py --student-epochs 100 --num-workers 4 --run-
 
 Any teacher-gap adjustment is reporting-only and is not applied to training or
 checkpoint selection.
+
+## Completed result
+
+- Best Top-1: **80.04%** at epoch 74
+- Latest Top-1: 79.43% at epoch 100
+- Vanilla reference: 82.00% (gain: -1.96pp)
+- Runtime: 16m 05s
+- Verified files: [`results/deit_ti/`](results/deit_ti/)

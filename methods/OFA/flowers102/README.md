@@ -18,3 +18,11 @@ Full:
 ```bash
 python methods/OFA/flowers102/train.py --student-epochs 200 --num-workers 4 --run-name ofa_flowers102_deit_ti_200ep --output-dir /app/output
 ```
+
+## Completed result
+
+- Best Top-1: **44.07%** at epoch 190
+- Latest Top-1: 43.96% at epoch 200
+- Vanilla reference: 50.06% (gain: -5.99pp)
+- Runtime: 38m 19s
+- Verified files: [`results/deit_ti/`](results/deit_ti/)
