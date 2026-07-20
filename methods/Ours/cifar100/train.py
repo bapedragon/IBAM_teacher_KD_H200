@@ -19,9 +19,18 @@ PROTOCOL_DEFAULTS = (
     ("--student-epochs", "300"),
     ("--batch-size", "128"),
     ("--lr", "0.0005"),
+    ("--min-lr", "0.000005"),
     ("--weight-decay", "0.05"),
     ("--warmup-epochs", "20"),
     ("--label-smoothing", "0.1"),
+    ("--drop-path-rate", "0.0"),
+    ("--teacher-image-size", "32"),
+    ("--beta-schedule", "alg_proxy"),
+    ("--beta-on", "2.5"),
+    ("--guidance-min-epochs", "20"),
+    ("--guidance-window", "5"),
+    ("--guidance-patience", "3"),
+    ("--guidance-relative-threshold", "0.01"),
 )
 
 

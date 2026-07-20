@@ -1,12 +1,20 @@
 # Ours: Chaoyang / DeiT-Ti
 
 - Data: official mounted dataset under `/app/data/chaoyang`
-- Teacher: fixed ResNet56 latest checkpoint, epoch 300, Top-1 `81.53%`
+- Teacher: fixed ResNet56 latest checkpoint, epoch 300, recorded Top-1 `81.53%`
 - Student: DeiT-Ti from scratch
-- Base protocol: 100 epochs, batch 64, AdamW `5e-4`, weight decay `0.05`
-- Schedule: 5-epoch warm-up followed by cosine decay
-- Input and regularization: 224 pixels, label smoothing `0.1`, seed `42`
-- Ours loss: `CE + 1.0 * 2.5 * (0.5 * L_fuse + 0.5 * L_align)`
+- Base protocol: 100 epochs, batch 64, AdamW `5e-4`, minimum LR `5e-6`,
+  weight decay `0.05`, 5-epoch warm-up, cosine decay
+- Input/recorded choices: 224 pixels, label smoothing `0.1`, seed `42`
+- Loss: `CE + beta(e) * (0.5 * L_fuse + 0.5 * L_align)`
+- Default beta reproduction: `beta_on=2.5`, then zero after the fully logged
+  relative feature-distance plateau proxy
+- Working-paper comparison target: `86.35%` Top-1
+
+No supplied Chaoyang-specific Ours teacher-size config is available. The
+source-compatible 32-pixel setting is therefore audited against this
+repository's 224-trained teacher before any full run; a drop over 5 points
+blocks training.
 
 Timing run:
 
@@ -14,11 +22,12 @@ Timing run:
 python methods/Ours/chaoyang/train.py --timing-run --num-workers 4
 ```
 
-Full run after the timing log is verified:
+Full run only after the timing log and teacher audit pass:
 
 ```bash
-python methods/Ours/chaoyang/train.py --student-epochs 100 --num-workers 4 --run-name ours_chaoyang_deit_ti_100ep --output-dir /app/output
+python methods/Ours/chaoyang/train.py --student-epochs 100 --accept-alg-proxy --num-workers 4 --run-name ours_chaoyang_deit_ti_100ep --output-dir /app/output
 ```
 
-The working-paper Ours reference is `86.35%` Top-1. Raw measured accuracy must
-be retained in the run summary; no teacher-gap correction is applied by code.
+Raw measured accuracy is retained; no teacher-gap correction is applied by
+code. The 100-epoch dataset protocol is intentional. See
+[`../PAPER_AUDIT.md`](../PAPER_AUDIT.md).

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import platform
 import signal
 import sys
@@ -30,8 +31,6 @@ from methods.KD.core import (
     build_loaders,
     count_parameters,
     create_grad_scaler,
-    create_scheduler,
-    create_student,
     ensure_timm,
     evaluate,
     format_duration,
@@ -47,6 +46,90 @@ SOURCE_SNIPPET_SHA256 = "8649078970b93d750a956994611b65cdec0c24f907d35d86f29d635
 TEACHER_CHANNELS = (16, 32, 64)
 STUDENT_CHANNELS = 192
 NUM_STUDENT_BLOCKS = 12
+
+
+class AdaptiveGuidanceController:
+    """Turn feature guidance off after its epoch-level distance plateaus.
+
+    ALG publicly specifies a threshold on the *evolution* of the CNN/ViT
+    feature distance, followed by supervised-only training. Its exact
+    threshold/config is not present in the supplied manuscript or model-only
+    source. This controller therefore records a transparent relative-plateau
+    proxy instead of presenting an invented value as an official ALG setting.
+    """
+
+    def __init__(self, args: argparse.Namespace) -> None:
+        self.schedule = args.beta_schedule
+        self.beta_on = float(args.beta_on)
+        self.minimum_epochs = int(args.guidance_min_epochs)
+        self.window = int(args.guidance_window)
+        self.patience = int(args.guidance_patience)
+        self.relative_threshold = float(args.guidance_relative_threshold)
+        self.manual_stop_epoch = args.guidance_stop_epoch
+        self.active = True
+        self.stop_epoch: int | None = None
+        self.stable_checks = 0
+        self.distance_history: list[float] = []
+        self.relative_change_history: list[float | None] = []
+        self.beta_history: list[float] = []
+
+    def beta_for_epoch(self, epoch: int) -> float:
+        if self.schedule == "manual_stop":
+            assert self.manual_stop_epoch is not None
+            active = epoch <= self.manual_stop_epoch
+        else:
+            active = self.active
+        beta = self.beta_on if active else 0.0
+        self.beta_history.append(beta)
+        return beta
+
+    def observe(self, epoch: int, alignment_distance: float) -> dict[str, Any]:
+        self.distance_history.append(float(alignment_distance))
+        relative_change: float | None = None
+
+        if self.schedule == "manual_stop":
+            assert self.manual_stop_epoch is not None
+            if epoch >= self.manual_stop_epoch and self.stop_epoch is None:
+                self.stop_epoch = self.manual_stop_epoch
+            self.active = epoch < self.manual_stop_epoch
+            self.relative_change_history.append(None)
+            return self.state_dict()
+
+        if epoch >= self.minimum_epochs and len(self.distance_history) >= 2 * self.window:
+            previous = self.distance_history[-2 * self.window : -self.window]
+            current = self.distance_history[-self.window :]
+            previous_mean = sum(previous) / len(previous)
+            current_mean = sum(current) / len(current)
+            relative_change = abs(current_mean - previous_mean) / max(
+                abs(previous_mean), 1e-12
+            )
+            if relative_change <= self.relative_threshold:
+                self.stable_checks += 1
+            else:
+                self.stable_checks = 0
+            if self.active and self.stable_checks >= self.patience:
+                self.active = False
+                self.stop_epoch = epoch
+
+        self.relative_change_history.append(relative_change)
+        return self.state_dict()
+
+    def state_dict(self) -> dict[str, Any]:
+        return {
+            "schedule": self.schedule,
+            "beta_on": self.beta_on,
+            "active": self.active,
+            "stop_epoch": self.stop_epoch,
+            "minimum_epochs": self.minimum_epochs,
+            "window": self.window,
+            "patience": self.patience,
+            "relative_threshold": self.relative_threshold,
+            "manual_stop_epoch": self.manual_stop_epoch,
+            "stable_checks": self.stable_checks,
+            "distance_history": list(self.distance_history),
+            "relative_change_history": list(self.relative_change_history),
+            "beta_history": list(self.beta_history),
+        }
 
 
 def install_signal_handlers() -> None:
@@ -82,14 +165,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--smoke-train-samples", type=int, default=1024)
     parser.add_argument("--smoke-test-samples", type=int, default=512)
     parser.add_argument("--lr", type=float, default=5e-4)
+    parser.add_argument("--min-lr", type=float, default=5e-6)
     parser.add_argument("--weight-decay", type=float, default=0.05)
     parser.add_argument("--warmup-epochs", type=int, default=20)
     parser.add_argument("--label-smoothing", type=float, default=0.1)
     parser.add_argument(
-        "--distill-weight",
+        "--drop-path-rate",
         type=float,
-        default=2.5,
-        help="Weight applied to the combined alignment/fusion feature loss.",
+        default=0.0,
+        help="DeiT stochastic-depth rate; kept at 0 for the shared KD protocol.",
     )
     parser.add_argument(
         "--fusion-ratio",
@@ -98,10 +182,60 @@ def parse_args() -> argparse.Namespace:
         help="Lambda in lambda*L_fuse + (1-lambda)*L_align.",
     )
     parser.add_argument(
-        "--beta",
+        "--beta-schedule",
+        choices=("alg_proxy", "manual_stop"),
+        default="alg_proxy",
+        help=(
+            "alg_proxy uses a fully recorded relative feature-distance plateau rule; "
+            "manual_stop uses an explicitly supplied stop epoch."
+        ),
+    )
+    parser.add_argument(
+        "--beta-on",
         type=float,
-        default=1.0,
-        help="Fixed beta multiplier; the supplied source did not include an adaptive controller.",
+        default=2.5,
+        help="Value of beta(e) while feature guidance is active.",
+    )
+    parser.add_argument("--guidance-min-epochs", type=int, default=20)
+    parser.add_argument("--guidance-window", type=int, default=5)
+    parser.add_argument("--guidance-patience", type=int, default=3)
+    parser.add_argument("--guidance-relative-threshold", type=float, default=0.01)
+    parser.add_argument(
+        "--accept-alg-proxy",
+        action="store_true",
+        help=(
+            "Required for a full alg_proxy run; confirms that its plateau rule is "
+            "a documented reproduction choice rather than the unavailable official ALG config."
+        ),
+    )
+    parser.add_argument(
+        "--guidance-stop-epoch",
+        type=int,
+        default=None,
+        help="Last guided epoch; required only for --beta-schedule manual_stop.",
+    )
+    parser.add_argument(
+        "--teacher-image-size",
+        type=int,
+        default=32,
+        help=(
+            "CNN teacher input size before stage extraction. The supplied/public "
+            "DeiT-CIFAR source configuration uses 32."
+        ),
+    )
+    parser.add_argument(
+        "--max-teacher-runtime-gap-pp",
+        type=float,
+        default=5.0,
+        help=(
+            "Maximum allowed drop from checkpoint Top-1 when the teacher is "
+            "evaluated at --teacher-image-size before a full run."
+        ),
+    )
+    parser.add_argument(
+        "--allow-teacher-runtime-gap",
+        action="store_true",
+        help="Explicitly allow a full run despite failing the teacher input-size audit.",
     )
     parser.add_argument("--feature-grid", type=int, default=14)
     parser.add_argument("--num-heads", type=int, default=4)
@@ -139,9 +273,14 @@ def finalize_args(args: argparse.Namespace) -> None:
         "smoke_train_samples",
         "smoke_test_samples",
         "lr",
+        "min_lr",
         "feature_grid",
+        "teacher_image_size",
         "num_heads",
         "deform_kernel_size",
+        "beta_on",
+        "guidance_window",
+        "guidance_patience",
     ):
         if getattr(args, field) <= 0:
             raise ValueError(f"--{field.replace('_', '-')} must be positive")
@@ -149,12 +288,37 @@ def finalize_args(args: argparse.Namespace) -> None:
         raise ValueError("--num-workers must be non-negative")
     if args.warmup_epochs < 0:
         raise ValueError("--warmup-epochs must be non-negative")
-    if args.distill_weight < 0 or args.beta < 0:
-        raise ValueError("--distill-weight and --beta must be non-negative")
+    if args.guidance_min_epochs < 0:
+        raise ValueError("--guidance-min-epochs must be non-negative")
+    if args.guidance_relative_threshold < 0:
+        raise ValueError("--guidance-relative-threshold must be non-negative")
+    if args.max_teacher_runtime_gap_pp < 0:
+        raise ValueError("--max-teacher-runtime-gap-pp must be non-negative")
+    if args.beta_schedule == "manual_stop":
+        if args.guidance_stop_epoch is None or args.guidance_stop_epoch <= 0:
+            raise ValueError(
+                "--beta-schedule manual_stop requires a positive --guidance-stop-epoch"
+            )
+    elif args.guidance_stop_epoch is not None:
+        raise ValueError(
+            "--guidance-stop-epoch is only valid with --beta-schedule manual_stop"
+        )
+    if (
+        args.beta_schedule == "alg_proxy"
+        and not (args.smoke or args.timing_run or args.accept_alg_proxy)
+    ):
+        raise ValueError(
+            "A full alg_proxy run requires --accept-alg-proxy. The exact official "
+            "ALG threshold/config is not present in the supplied materials."
+        )
     if not 0.0 <= args.fusion_ratio <= 1.0:
         raise ValueError("--fusion-ratio must be in [0, 1]")
     if not 0.0 <= args.label_smoothing < 1.0:
         raise ValueError("--label-smoothing must be in [0, 1)")
+    if not 0.0 <= args.drop_path_rate < 1.0:
+        raise ValueError("--drop-path-rate must be in [0, 1)")
+    if args.min_lr > args.lr:
+        raise ValueError("--min-lr must not exceed --lr")
     if args.image_size != 224:
         raise ValueError("The fixed dataset protocols require --image-size 224")
     if args.feature_grid != 14:
@@ -170,17 +334,70 @@ def finalize_args(args: argparse.Namespace) -> None:
 def forward_teacher_features(
     teacher: torch.nn.Module,
     images: torch.Tensor,
-    feature_grid: int,
+    teacher_image_size: int,
 ) -> list[torch.Tensor]:
+    if images.shape[-2:] != (teacher_image_size, teacher_image_size):
+        images = F.interpolate(
+            images,
+            size=(teacher_image_size, teacher_image_size),
+            mode="bilinear",
+            align_corners=False,
+        )
     stem = teacher.stem(images)
     stage1 = teacher.stage1(stem)
     stage2 = teacher.stage2(stage1)
     stage3 = teacher.stage3(stage2)
-    return [
-        F.adaptive_avg_pool2d(stage1, (feature_grid, feature_grid)),
-        F.adaptive_avg_pool2d(stage2, (feature_grid, feature_grid)),
-        F.adaptive_avg_pool2d(stage3, (feature_grid, feature_grid)),
-    ]
+    return [stage1, stage2, stage3]
+
+
+@torch.inference_mode()
+def evaluate_teacher_at_runtime_size(
+    teacher: torch.nn.Module,
+    loader: Any,
+    device: torch.device,
+    amp_enabled: bool,
+    teacher_image_size: int,
+) -> float:
+    teacher.eval()
+    correct = 0
+    total = 0
+    for images, targets in loader:
+        images = images.to(device, non_blocking=True)
+        targets = targets.to(device, non_blocking=True)
+        images = F.interpolate(
+            images,
+            size=(teacher_image_size, teacher_image_size),
+            mode="bilinear",
+            align_corners=False,
+        )
+        with autocast_context(amp_enabled):
+            logits = teacher(images)
+        correct += top1_correct(logits, targets)
+        total += targets.size(0)
+    return 100.0 * correct / max(1, total)
+
+
+def create_ours_scheduler(
+    optimizer: torch.optim.Optimizer,
+    epochs: int,
+    warmup_epochs: int,
+    min_lr: float,
+    base_lr: float,
+) -> tuple[torch.optim.lr_scheduler.LambdaLR, int]:
+    effective_warmup = warmup_epochs if epochs > warmup_epochs else 0
+    minimum_ratio = min_lr / base_lr
+
+    def lr_multiplier(epoch_index: int) -> float:
+        if effective_warmup and epoch_index < effective_warmup:
+            return (epoch_index + 1) / effective_warmup
+        cosine_epochs = max(1, epochs - effective_warmup)
+        progress = min(
+            max((epoch_index - effective_warmup) / cosine_epochs, 0.0), 1.0
+        )
+        cosine = 0.5 * (1.0 + math.cos(math.pi * progress))
+        return minimum_ratio + (1.0 - minimum_ratio) * cosine
+
+    return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_multiplier), effective_warmup
 
 
 def forward_student_features(
@@ -197,6 +414,27 @@ def forward_student_features(
     return list(intermediate_features), logits
 
 
+def create_ours_student(
+    timm: Any,
+    student_key: str,
+    num_classes: int,
+    drop_path_rate: float,
+) -> torch.nn.Module:
+    timm_name = STUDENT_MODELS[student_key]
+    try:
+        return timm.create_model(
+            timm_name,
+            pretrained=False,
+            num_classes=num_classes,
+            drop_path_rate=drop_path_rate,
+        )
+    except Exception as error:
+        raise RuntimeError(
+            f"Failed to create timm model {timm_name!r} with "
+            f"drop_path_rate={drop_path_rate}"
+        ) from error
+
+
 def train_one_epoch(
     student: torch.nn.Module,
     teacher: torch.nn.Module,
@@ -207,6 +445,7 @@ def train_one_epoch(
     device: torch.device,
     args: argparse.Namespace,
     amp_enabled: bool,
+    beta: float,
 ) -> tuple[float, float, float, float, float, float]:
     student.train()
     teacher.eval()
@@ -223,12 +462,14 @@ def train_one_epoch(
         targets = targets.to(device, non_blocking=True)
         optimizer.zero_grad(set_to_none=True)
 
-        with torch.no_grad(), autocast_context(amp_enabled):
-            teacher_features = forward_teacher_features(
-                teacher,
-                images,
-                args.feature_grid,
-            )
+        teacher_features: list[torch.Tensor] | None = None
+        if beta > 0.0:
+            with torch.no_grad(), autocast_context(amp_enabled):
+                teacher_features = forward_teacher_features(
+                    teacher,
+                    images,
+                    args.teacher_image_size,
+                )
         with autocast_context(amp_enabled):
             student_features, student_logits = forward_student_features(student, images)
             ce = F.cross_entropy(
@@ -236,15 +477,21 @@ def train_one_epoch(
                 targets,
                 label_smoothing=args.label_smoothing,
             )
-            alignment_loss, fusion_loss, _, _ = ours(
-                student_features,
-                teacher_features,
-            )
-            feature_loss = (
-                args.fusion_ratio * fusion_loss
-                + (1.0 - args.fusion_ratio) * alignment_loss
-            )
-            loss = ce + args.beta * args.distill_weight * feature_loss
+            if teacher_features is None:
+                alignment_loss = ce.new_zeros(())
+                fusion_loss = ce.new_zeros(())
+                feature_loss = ce.new_zeros(())
+                loss = ce
+            else:
+                alignment_loss, fusion_loss, _, _, _ = ours(
+                    student_features,
+                    teacher_features,
+                )
+                feature_loss = (
+                    args.fusion_ratio * fusion_loss
+                    + (1.0 - args.fusion_ratio) * alignment_loss
+                )
+                loss = ce + beta * feature_loss
 
         scaler.scale(loss).backward()
         scaler.step(optimizer)
@@ -283,6 +530,7 @@ def checkpoint_payload(
     best_accuracy: float,
     args: argparse.Namespace,
     teacher_spec: dict[str, Any],
+    controller: AdaptiveGuidanceController,
 ) -> dict[str, Any]:
     return {
         "model": student.state_dict(),
@@ -297,6 +545,7 @@ def checkpoint_payload(
         "num_classes": NUM_CLASSES[args.dataset],
         "teacher": teacher_spec,
         "source_snippet_sha256": SOURCE_SNIPPET_SHA256,
+        "guidance_controller": controller.state_dict(),
         "args": public_args(args),
     }
 
@@ -312,6 +561,8 @@ def write_summary(
     epoch_times: list[float],
     elapsed_seconds: float,
     aggregation_weights: list[list[float]],
+    controller: AdaptiveGuidanceController,
+    teacher_runtime_top1: float,
 ) -> None:
     average_epoch = sum(epoch_times) / max(1, len(epoch_times))
     summary = {
@@ -322,6 +573,19 @@ def write_summary(
         "timm_model": STUDENT_MODELS[args.student],
         "teacher": teacher_spec,
         "source_snippet_sha256": SOURCE_SNIPPET_SHA256,
+        "paper_loss_equation": (
+            "CE + beta(e) * (lambda * L_fuse + (1-lambda) * L_align)"
+        ),
+        "guidance_controller": controller.state_dict(),
+        "teacher_runtime_top1": teacher_runtime_top1,
+        "teacher_checkpoint_top1": float(teacher_spec["top1"]),
+        "teacher_runtime_gap_pp": (
+            teacher_runtime_top1 - float(teacher_spec["top1"])
+        ),
+        "teacher_runtime_audit_passed": (
+            teacher_runtime_top1 - float(teacher_spec["top1"])
+            >= -args.max_teacher_runtime_gap_pp
+        ),
         "student_epochs": args.student_epochs,
         "latest_epoch": latest_epoch,
         "best_top1": best_accuracy,
@@ -404,25 +668,52 @@ def main() -> None:
     )
     log(
         f"[PROTOCOL] name={args.protocol_name} optimizer=AdamW lr={args.lr} "
-        f"weight_decay={args.weight_decay} warmup={args.warmup_epochs} "
-        f"cosine batch={args.batch_size} image={args.image_size}"
+        f"min_lr={args.min_lr} weight_decay={args.weight_decay} "
+        f"warmup={args.warmup_epochs} "
+        f"cosine batch={args.batch_size} image={args.image_size} "
+        f"label_smoothing={args.label_smoothing} "
+        f"drop_path={args.drop_path_rate}"
     )
     log(
-        f"[OURS] loss=CE+beta*weight*(lambda*L_fuse+(1-lambda)*L_align) "
-        f"beta={args.beta} weight={args.distill_weight} "
-        f"lambda={args.fusion_ratio}"
+        f"[OURS] loss=CE+beta(e)*(lambda*L_fuse+(1-lambda)*L_align) "
+        f"beta_on={args.beta_on} lambda={args.fusion_ratio}"
     )
     log(
         f"[OURS] student_blocks=all_12 aggregation=learnable_uniform_init "
-        f"teacher_stages=1/2/3 grid={args.feature_grid}x{args.feature_grid} "
+        f"teacher_stages=1/2/3 teacher_input={args.teacher_image_size} "
+        f"student_grid={args.feature_grid}x{args.feature_grid} "
+        "stage_grid=resize_both_to_larger "
         f"projection=1x1 deform_kernel={args.deform_kernel_size} "
         f"qkv_kernel=1 heads={args.num_heads}"
     )
-    log(
-        "[NOTE] The supplied Ours snippet does not include the external adaptive "
-        "beta controller; this run records and uses a fixed --beta value."
-    )
+    if args.beta_schedule == "alg_proxy":
+        log(
+            "[BETA] schedule=alg_proxy active_then_zero "
+            f"metric=epoch_alignment_distance relative_threshold="
+            f"{args.guidance_relative_threshold} window={args.guidance_window} "
+            f"patience={args.guidance_patience} "
+            f"minimum_epochs={args.guidance_min_epochs}"
+        )
+        log(
+            "[REPRO_STATUS] ALG's exact distance statistic/threshold is absent from "
+            "the supplied manuscript and model-only source. The proxy is explicit "
+            "and fully recorded; it is not labeled as the official ALG controller."
+        )
+    else:
+        log(
+            f"[BETA] schedule=manual_stop beta_on={args.beta_on} "
+            f"last_guided_epoch={args.guidance_stop_epoch}"
+        )
     log(f"[SOURCE] provided_snippet_sha256={SOURCE_SNIPPET_SHA256}")
+    log(
+        "[REPRO_STATUS] Paper-confirmed: Eq.(4), lambda=0.5, all-block "
+        "aggregation, 1x1 projection/QKV, bilinear grid alignment, 5x5 "
+        "deformable attention, and frozen teacher."
+    )
+    log(
+        "[REPRO_STATUS] Configuration choices: beta_on, ALG proxy thresholds, "
+        "teacher input size, augmentation, label smoothing, seed, and checkpoint policy."
+    )
 
     train_loader, test_loader = build_loaders(args, device)
     teacher, teacher_payload, teacher_spec = load_teacher(
@@ -430,7 +721,19 @@ def main() -> None:
         device=device,
         checkpoint_root=args.teacher_root,
     )
-    student = create_student(timm, args.student, NUM_CLASSES[args.dataset]).to(device)
+    teacher_runtime_top1 = evaluate_teacher_at_runtime_size(
+        teacher,
+        test_loader,
+        device,
+        amp_enabled,
+        args.teacher_image_size,
+    )
+    student = create_ours_student(
+        timm,
+        args.student,
+        NUM_CLASSES[args.dataset],
+        args.drop_path_rate,
+    ).to(device)
     ours = Ours(
         student_channels=STUDENT_CHANNELS,
         teacher_channels=TEACHER_CHANNELS,
@@ -441,32 +744,47 @@ def main() -> None:
 
     with torch.no_grad():
         probe = torch.zeros(2, 3, args.image_size, args.image_size, device=device)
-        teacher_probe = forward_teacher_features(teacher, probe, args.feature_grid)
         student_probe, logits_probe = forward_student_features(student, probe)
-        alignment_probe, fusion_probe, aligned_probe, fused_probe = ours(
+        teacher_probe = forward_teacher_features(
+            teacher, probe, args.teacher_image_size
+        )
+        target_spatial_sizes = [
+            (
+                max(feature.shape[-2], args.feature_grid),
+                max(feature.shape[-1], args.feature_grid),
+            )
+            for feature in teacher_probe
+        ]
+        if max(height * width for height, width in target_spatial_sizes) > 4096:
+            raise RuntimeError(
+                "Ours grid-space attention target is too large for a safe run: "
+                f"{target_spatial_sizes}. Use the source-compatible teacher input "
+                "size/checkpoint and verify its accuracy with --timing-run."
+            )
+        (
+            alignment_probe,
+            fusion_probe,
+            aligned_probe,
+            fused_probe,
+            target_probe,
+        ) = ours(
             student_probe,
             teacher_probe,
         )
-    expected_teacher = [
-        (2, channels, args.feature_grid, args.feature_grid)
-        for channels in TEACHER_CHANNELS
-    ]
+    expected_teacher_raw = [tuple(feature.shape) for feature in teacher_probe]
     expected_student = [
         (2, STUDENT_CHANNELS, args.feature_grid, args.feature_grid)
     ] * NUM_STUDENT_BLOCKS
-    if [tuple(feature.shape) for feature in teacher_probe] != expected_teacher:
-        raise RuntimeError(
-            f"Unexpected teacher features: {[tuple(x.shape) for x in teacher_probe]}"
-        )
+    expected_targets = [tuple(feature.shape) for feature in target_probe]
     if [tuple(feature.shape) for feature in student_probe] != expected_student:
         raise RuntimeError(
             f"Unexpected student features: {[tuple(x.shape) for x in student_probe]}"
         )
-    if [tuple(feature.shape) for feature in aligned_probe] != expected_teacher:
+    if [tuple(feature.shape) for feature in aligned_probe] != expected_targets:
         raise RuntimeError(
             f"Unexpected aligned features: {[tuple(x.shape) for x in aligned_probe]}"
         )
-    if [tuple(feature.shape) for feature in fused_probe] != expected_teacher:
+    if [tuple(feature.shape) for feature in fused_probe] != expected_targets:
         raise RuntimeError(
             f"Unexpected fused features: {[tuple(x.shape) for x in fused_probe]}"
         )
@@ -482,15 +800,36 @@ def main() -> None:
         f"sha256={teacher_spec['sha256']}"
     )
     log(
+        f"[TEACHER_RUNTIME_AUDIT] checkpoint_top1_at_training_recipe="
+        f"{float(teacher_payload['accuracy']):.2f}% "
+        f"runtime_top1_at_{args.teacher_image_size}px={teacher_runtime_top1:.2f}% "
+        f"gap={teacher_runtime_top1 - float(teacher_payload['accuracy']):+.2f}pp"
+    )
+    runtime_gap = teacher_runtime_top1 - float(teacher_payload["accuracy"])
+    if runtime_gap < -args.max_teacher_runtime_gap_pp:
+        log(
+            "[TEACHER_RUNTIME_AUDIT][WARN] Runtime low-resolution teacher accuracy "
+            f"is more than {args.max_teacher_runtime_gap_pp:.1f}pp below the "
+            "checkpoint record."
+        )
+        if not (args.smoke or args.timing_run or args.allow_teacher_runtime_gap):
+            raise RuntimeError(
+                "Teacher runtime accuracy audit failed before the full run. "
+                "Review --teacher-image-size using a timing run, or pass "
+                "--allow-teacher-runtime-gap only after deliberately accepting "
+                "the mismatch."
+            )
+    log(
         f"[MODEL] teacher_params={count_parameters(teacher):,} "
         f"student={STUDENT_MODELS[args.student]} "
         f"student_params={count_parameters(student):,} "
         f"ours_trainable_params={count_parameters(ours):,}"
     )
     log(
-        f"[FEATURE_CHECK] teacher={expected_teacher} "
+        f"[FEATURE_CHECK] teacher_raw={expected_teacher_raw} "
         f"student_blocks={NUM_STUDENT_BLOCKS}x{expected_student[0]} "
-        f"aligned={expected_teacher} fused={expected_teacher} "
+        f"stage_targets={expected_targets} "
+        f"aligned={expected_targets} fused={expected_targets} "
         f"probe_align={float(alignment_probe):.4f} "
         f"probe_fuse={float(fusion_probe):.4f}"
     )
@@ -501,10 +840,12 @@ def main() -> None:
         lr=args.lr,
         weight_decay=args.weight_decay,
     )
-    scheduler, effective_warmup = create_scheduler(
+    scheduler, effective_warmup = create_ours_scheduler(
         optimizer,
         args.student_epochs,
         args.warmup_epochs,
+        args.min_lr,
+        args.lr,
     )
     scaler = create_grad_scaler(amp_enabled)
     log(
@@ -516,11 +857,13 @@ def main() -> None:
     best_accuracy = 0.0
     latest_accuracy = 0.0
     epoch_times: list[float] = []
+    controller = AdaptiveGuidanceController(args)
     training_start = time.time()
     for epoch_index in range(args.student_epochs):
         epoch = epoch_index + 1
         epoch_start = time.time()
         epoch_lr = optimizer.param_groups[0]["lr"]
+        beta = controller.beta_for_epoch(epoch)
         (
             loss,
             ce,
@@ -538,7 +881,19 @@ def main() -> None:
             device,
             args,
             amp_enabled,
+            beta,
         )
+        controller_state = controller.observe(epoch, alignment_loss)
+        relative_change = controller_state["relative_change_history"][-1]
+        relative_text = (
+            "n/a" if relative_change is None else f"{float(relative_change):.6f}"
+        )
+        if beta > 0.0 and not controller.active:
+            log(
+                f"[BETA_TRANSITION] guidance disabled after epoch={epoch} "
+                f"alignment_distance={alignment_loss:.6f} "
+                f"relative_change={relative_text}; subsequent epochs are CE-only."
+            )
         latest_accuracy = evaluate(student, test_loader, device, amp_enabled)
         epoch_seconds = time.time() - epoch_start
         epoch_times.append(epoch_seconds)
@@ -552,6 +907,7 @@ def main() -> None:
             best_accuracy,
             args,
             teacher_spec,
+            controller,
         )
         torch.save(payload, latest_checkpoint)
         saved_best = latest_accuracy >= previous_best
@@ -569,6 +925,8 @@ def main() -> None:
             epoch_times=epoch_times,
             elapsed_seconds=elapsed,
             aggregation_weights=aggregation_weights_list(ours),
+            controller=controller,
+            teacher_runtime_top1=teacher_runtime_top1,
         )
         average_epoch = sum(epoch_times) / len(epoch_times)
         suffix = " saved_best" if saved_best else ""
@@ -576,6 +934,9 @@ def main() -> None:
             f"[OURS][{epoch:03d}/{args.student_epochs:03d}] loss={loss:.4f} "
             f"ce={ce:.4f} align={alignment_loss:.4f} "
             f"fuse={fusion_loss:.4f} feature={feature_loss:.4f} "
+            f"beta={beta:.4f} guidance_active_next={controller.active} "
+            f"distance_relative_change={relative_text} "
+            f"guidance_stop_epoch={controller.stop_epoch} "
             f"train_acc={train_accuracy:.2f}% val_acc={latest_accuracy:.2f}% "
             f"best={best_accuracy:.2f}% lr={epoch_lr:.6g} "
             f"time={epoch_seconds:.1f}s avg_epoch={average_epoch:.1f}s "
@@ -600,6 +961,13 @@ def main() -> None:
         f"elapsed={format_duration(elapsed)}"
     )
     log(f"[AGGREGATION_FINAL] {top_aggregation_weights(ours)}")
+    log(
+        f"[BETA_FINAL] schedule={controller.schedule} "
+        f"stop_epoch={controller.stop_epoch} "
+        f"guided_epochs={sum(beta > 0.0 for beta in controller.beta_history)} "
+        f"ce_only_epochs={sum(beta == 0.0 for beta in controller.beta_history)} "
+        "full_history_saved_in=summary.json"
+    )
     log(f"[FINAL_RESULT] best_checkpoint={best_checkpoint.resolve()}")
     log(f"[FINAL_RESULT] latest_checkpoint={latest_checkpoint.resolve()}")
     log(f"[FINAL_RESULT] summary={summary_path.resolve()}")

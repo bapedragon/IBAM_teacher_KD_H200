@@ -253,7 +253,13 @@ class Ours(nn.Module):
         self,
         student_features: Sequence[torch.Tensor],
         teacher_features: Sequence[torch.Tensor],
-    ) -> tuple[torch.Tensor, torch.Tensor, list[torch.Tensor], list[torch.Tensor]]:
+    ) -> tuple[
+        torch.Tensor,
+        torch.Tensor,
+        list[torch.Tensor],
+        list[torch.Tensor],
+        list[torch.Tensor],
+    ]:
         if len(teacher_features) != len(self.teacher_channels):
             raise ValueError(
                 f"Expected {len(self.teacher_channels)} teacher stages, "
@@ -262,16 +268,27 @@ class Ours(nn.Module):
         aggregated = self.aggregation(student_features)
         aligned_features: list[torch.Tensor] = []
         fused_features: list[torch.Tensor] = []
+        target_features: list[torch.Tensor] = []
         alignment_loss = aggregated.new_zeros(())
         fusion_loss = aggregated.new_zeros(())
         for stage, (teacher_feature, projection, fusion) in enumerate(
             zip(teacher_features, self.projections, self.fusion_blocks, strict=True)
         ):
             aligned = projection(aggregated[:, stage])
-            if aligned.shape[-2:] != teacher_feature.shape[-2:]:
+            target_height = max(aligned.shape[-2], teacher_feature.shape[-2])
+            target_width = max(aligned.shape[-1], teacher_feature.shape[-1])
+            target_size = (target_height, target_width)
+            if aligned.shape[-2:] != target_size:
                 aligned = F.interpolate(
                     aligned,
-                    size=teacher_feature.shape[-2:],
+                    size=target_size,
+                    mode="bilinear",
+                    align_corners=False,
+                )
+            if teacher_feature.shape[-2:] != target_size:
+                teacher_feature = F.interpolate(
+                    teacher_feature,
+                    size=target_size,
                     mode="bilinear",
                     align_corners=False,
                 )
@@ -289,4 +306,11 @@ class Ours(nn.Module):
             )
             aligned_features.append(aligned)
             fused_features.append(fused)
-        return alignment_loss, fusion_loss, aligned_features, fused_features
+            target_features.append(teacher_feature)
+        return (
+            alignment_loss,
+            fusion_loss,
+            aligned_features,
+            fused_features,
+            target_features,
+        )

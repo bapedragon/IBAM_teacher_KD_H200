@@ -107,8 +107,9 @@ README.md
   intermediate logit projectors for heterogeneous ResNet56-to-DeiT-Ti KD.
 - `methods/Ours/`: the provided Ours feature-distillation source adapted to the
   fixed ResNet56 teachers and all 12 DeiT-Ti patch-token grids. The source hash,
-  feature mapping, executable loss, and missing external beta controller are
-  documented explicitly.
+  paper Eq. (4), feature mapping, adaptive-beta reproduction boundary, and
+  teacher input-size audit are documented explicitly in
+  `methods/Ours/PAPER_AUDIT.md`.
 
 Legacy LG student training, LG checkpoint evaluation, the downloaded LG weight,
 and GitHub-token artifact upload experiments have been removed. H200 artifacts
@@ -177,8 +178,13 @@ python methods/Ours/cifar100/train.py --timing-run --num-workers 4
 First 300-epoch Ours run after timing verification:
 
 ```bash
-python methods/Ours/cifar100/train.py --student-epochs 300 --num-workers 4 --run-name ours_cifar100_deit_ti_300ep --output-dir /app/output
+python methods/Ours/cifar100/train.py --student-epochs 300 --accept-alg-proxy --num-workers 4 --run-name ours_cifar100_deit_ti_300ep --output-dir /app/output
 ```
+
+Do not start the full run unless the timing log's
+`[TEACHER_RUNTIME_AUDIT]` passes. The current teachers were trained at 224,
+while the supplied/public CIFAR Ours teacher path uses 32; the code blocks a
+large mismatch rather than silently producing an invalid comparison.
 
 ## Environment
 

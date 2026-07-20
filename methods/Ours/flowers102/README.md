@@ -1,12 +1,20 @@
 # Ours: Flowers-102 / DeiT-Ti
 
-- Teacher: fixed ResNet56 best checkpoint, epoch 291, Top-1 `64.64%`
+- Teacher: fixed ResNet56 best checkpoint, epoch 291, recorded Top-1 `64.64%`
 - Student: DeiT-Ti from scratch
-- Split: official `train + val` for training and official `test` for evaluation
-- Base protocol: 200 epochs, batch 64, AdamW `5e-4`, weight decay `0.05`
-- Schedule: 5-epoch warm-up followed by cosine decay
-- Input and regularization: 224 pixels, label smoothing `0.1`, seed `42`
-- Ours loss: `CE + 1.0 * 2.5 * (0.5 * L_fuse + 0.5 * L_align)`
+- Split: official `train + val` for training; official `test` for evaluation
+- Base protocol: 200 epochs, batch 64, AdamW `5e-4`, minimum LR `5e-6`,
+  weight decay `0.05`, 5-epoch warm-up, cosine decay
+- Input/recorded choices: 224 pixels, label smoothing `0.1`, seed `42`
+- Loss: `CE + beta(e) * (0.5 * L_fuse + 0.5 * L_align)`
+- Default beta reproduction: `beta_on=2.5`, then zero after the fully logged
+  relative feature-distance plateau proxy
+- Working-paper comparison target: `70.31%` Top-1
+
+No supplied Flowers-specific Ours teacher-size config is available. The
+source-compatible 32-pixel setting is therefore audited against this
+repository's 224-trained teacher before any full run; a drop over 5 points
+blocks training.
 
 Timing run:
 
@@ -14,12 +22,12 @@ Timing run:
 python methods/Ours/flowers102/train.py --timing-run --num-workers 4
 ```
 
-Full run after the timing log is verified:
+Full run only after the timing log and teacher audit pass:
 
 ```bash
-python methods/Ours/flowers102/train.py --student-epochs 200 --num-workers 4 --run-name ours_flowers102_deit_ti_200ep --output-dir /app/output
+python methods/Ours/flowers102/train.py --student-epochs 200 --accept-alg-proxy --num-workers 4 --run-name ours_flowers102_deit_ti_200ep --output-dir /app/output
 ```
 
-The working-paper Ours reference is `70.31%` Top-1. The exact external adaptive
-beta controller is not part of the provided source snippet, so the executable
-uses and records fixed `beta=1.0` unless a confirmed value is supplied.
+The 200-epoch dataset protocol is retained intentionally; the draft's single
+300-epoch statement is marked for correction. See
+[`../PAPER_AUDIT.md`](../PAPER_AUDIT.md) for confirmed and unresolved settings.
