@@ -20,6 +20,14 @@ def inputs() -> tuple[list[torch.Tensor], list[torch.Tensor]]:
 
 
 class OursGridTest(unittest.TestCase):
+    def test_default_preserves_supplied_source_larger_grid(self) -> None:
+        student, teacher = inputs()
+        module = Ours()
+        _, _, aligned, _, targets = module(student, teacher)
+        expected = [(1, 16, 32, 32), (1, 32, 16, 16), (1, 64, 14, 14)]
+        self.assertEqual([tuple(value.shape) for value in aligned], expected)
+        self.assertEqual([tuple(value.shape) for value in targets], expected)
+
     def test_paper_mode_uses_teacher_stage_grids(self) -> None:
         student, teacher = inputs()
         module = Ours(grid_resize_mode="teacher")

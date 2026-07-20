@@ -228,7 +228,7 @@ class Ours(nn.Module):
         num_student_blocks: int = 12,
         num_heads: int = 4,
         spatial_kernel_size: int = 5,
-        grid_resize_mode: str = "teacher",
+        grid_resize_mode: str = "larger",
     ) -> None:
         super().__init__()
         if grid_resize_mode not in {"teacher", "larger"}:
@@ -281,16 +281,15 @@ class Ours(nn.Module):
             zip(teacher_features, self.projections, self.fusion_blocks, strict=True)
         ):
             aligned = projection(aggregated[:, stage])
-            if self.grid_resize_mode == "teacher":
-                # The V3 manuscript explicitly defines the CNN stage as the
-                # target grid.  Keep the supplied snippet's larger-grid rule
-                # available as an opt-in compatibility mode.
-                target_size = teacher_feature.shape[-2:]
-            else:
+            if self.grid_resize_mode == "larger":
+                # Preserve the supplied Ours source: both tensors are resized
+                # to max(teacher grid, student grid) at each stage.
                 target_size = (
                     max(aligned.shape[-2], teacher_feature.shape[-2]),
                     max(aligned.shape[-1], teacher_feature.shape[-1]),
                 )
+            else:
+                target_size = teacher_feature.shape[-2:]
             if aligned.shape[-2:] != target_size:
                 aligned = F.interpolate(
                     aligned,

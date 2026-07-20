@@ -232,11 +232,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--grid-resize-mode",
         choices=("teacher", "larger"),
-        default="teacher",
+        default="larger",
         help=(
-            "teacher follows the V3 manuscript by resizing each projected "
-            "student stage to the CNN stage grid; larger reproduces the "
-            "supplied model snippet's max(student, teacher) grid rule."
+            "larger preserves the supplied model snippet's "
+            "max(student, teacher) grid rule; teacher is a paper-text "
+            "comparison mode and is not the reproduction default."
         ),
     )
     parser.add_argument(
@@ -712,8 +712,9 @@ def main() -> None:
     log(
         "[REPRO_STATUS] Paper-confirmed: Eq.(4), lambda=0.5, ALG beta=2.5, "
         "tau=-0.02 and 50-epoch smoothing, all-block aggregation, 1x1 "
-        "projection/QKV, teacher-grid bilinear alignment, 5x5 deformable "
-        "attention, and frozen teacher."
+        "projection/QKV, bilinear grid alignment, 5x5 deformable attention, "
+        "and frozen teacher. The active larger-grid rule follows the supplied "
+        "source; V3 instead describes teacher-grid resizing."
     )
     log(
         "[REPRO_STATUS] Ours-specific reproduction choices: L_align drives the "

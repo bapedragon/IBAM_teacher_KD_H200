@@ -6,6 +6,13 @@ confirmed by the working paper/source from reproduction choices that are not
 available in the supplied materials. See [`PAPER_AUDIT.md`](PAPER_AUDIT.md)
 for the evidence matrix.
 
+`ours.py` is a standalone PyTorch port rather than a byte-for-byte copy of the
+original pycls wrapper. The active feature path, aggregation, projection,
+larger-grid resizing, attention blocks, and MSE calculation are preserved.
+The unavailable pycls configuration is fixed to feature guidance enabled,
+linear feature projection, and optional logit KD disabled, which matches V3
+Eq. (4). The original source SHA-256 is recorded in every run.
+
 ## Implemented Ours objective
 
 The executable now follows working-paper Eq. (4) directly:
@@ -30,17 +37,17 @@ The previous extra fixed multiplication
 - patch-grid outputs from all 12 DeiT-Ti blocks
 - one learned convex 12-block mixture per CNN stage
 - stage-specific `1 x 1` channel projection
-- bilinear resizing of each projected student stage to its teacher-stage
-  resolution, as written in V3
+- bilinear resizing of both features to the larger stage grid, exactly as in
+  the supplied Ours source
 - channel attention and `5 x 5` deformable spatial attention
 - four-head convolutional cross-attention with `1 x 1` Q/K/V
 - teacher and Ours module discarded at inference
 
-The supplied model snippet instead resizes both tensors to the larger of the
-student/teacher grids. Because V3 explicitly says "teacher resolution", the
-paper-aligned `teacher` mode is the default. The snippet-compatible behavior
-is retained only as the explicit option `--grid-resize-mode larger` and must
-not be mixed into the main comparison silently.
+V3 instead says to resize to the teacher resolution. For the first
+reproduction, the supplied executable source is treated as authoritative, so
+`--grid-resize-mode larger` is the default. The paper-text interpretation is
+retained only as `--grid-resize-mode teacher` for a separately labeled check.
+Results from the two modes must not be mixed.
 
 ## Adaptive beta from ALG
 

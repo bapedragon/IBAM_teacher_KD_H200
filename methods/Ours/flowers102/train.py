@@ -29,7 +29,7 @@ PROTOCOL_DEFAULTS = (
     ("--beta-on", "2.5"),
     ("--alg-threshold", "-0.02"),
     ("--alg-smoothing-window", "50"),
-    ("--grid-resize-mode", "teacher"),
+    ("--grid-resize-mode", "larger"),
 )
 
 
